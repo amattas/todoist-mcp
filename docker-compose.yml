@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  todoist-mcp:
+    build: .
+    stdin_open: true
+    tty: true
+    environment:
+      # These can be overridden by creating a .env file
+      - DEBUG=${DEBUG:-false}
+      - TODOIST_API_TOKEN=${TODOIST_API_TOKEN}
+      # Redis cache (optional)
+      - REDIS_HOST=${REDIS_HOST:-}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_USE_SSL=${REDIS_USE_SSL:-false}

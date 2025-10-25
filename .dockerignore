@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Environment files (sensitive data)
+.env
+.env.local
+*.env
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+azure-archive/
+claude_desktop_config.json*
+ssl/
+*.pem
+*.crt
+*.key
+
+# Documentation
+README.md
+*.md
+
+# Tests
+tests/
+*_test.py
+test_*.py
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
