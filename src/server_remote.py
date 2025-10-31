@@ -9,6 +9,7 @@ import os
 import sys
 import logging
 import hashlib
+import asyncio
 from pathlib import Path
 from dotenv import load_dotenv
 from typing import Optional
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 # Get API key from environment (optional)
 api_key = os.getenv("MCP_API_KEY")
+md5_salt = os.getenv("MD5_SALT", "")
 
 if api_key:
     # Use dual-factor path-based authentication if API key is set
@@ -50,11 +52,16 @@ if api_key:
     if len(api_key) < 16:
         logger.warning("API key is too short. Consider using a longer key for better security.")
 
-    # Calculate MD5 hash of API key for dual-factor authentication
-    api_key_hash = hashlib.md5(api_key.encode()).hexdigest()
+    # Calculate MD5 hash of API key with optional salt for additional security layer
+    if md5_salt:
+        logger.info(f"Using MD5 salt from MD5_SALT environment variable")
+        hash_input = f"{md5_salt}{api_key}"
+    else:
+        logger.warning("No MD5_SALT configured - using unsalted hash")
+        hash_input = api_key
 
-    logger.info(f"API Key (first 8 chars): {api_key[:8]}...")
-    logger.info(f"MD5 Hash: {api_key_hash}")
+    api_key_hash = hashlib.md5(hash_input.encode()).hexdigest()
+    logger.info(f"API key hash calculated: {api_key_hash[:8]}... (showing first 8 chars)")
 
     # Flag to track if services are initialized
     _services_initialized = False
@@ -135,10 +142,15 @@ if api_key:
         # Call the MCP app
         return await mcp_app(modified_request.scope, modified_request.receive, request._send)
 
-    # Catch-all 404 handler
+    # Add a custom 404 handler with anti-brute-force delay
     @app.exception_handler(404)
     async def not_found_handler(request: Request, exc: HTTPException):
-        logger.warning(f"Access attempt to undefined route: {request.url.path}")
+        # Add 30-second delay for failed authentication attempts to prevent brute forcing
+        # Only delay for /app/ paths that look like authentication attempts
+        if request.url.path.startswith("/app/") and request.url.path != "/app/health":
+            logger.warning(f"Invalid authentication path attempted: {request.url.path} from {request.client.host if request.client else 'unknown'}")
+            await asyncio.sleep(30)
+
         return JSONResponse(
             status_code=404,
             content={"detail": "Not Found"}

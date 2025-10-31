@@ -8,11 +8,16 @@ import hashlib
 import os
 
 
-def calculate_mcp_url(api_key: str, domain: str = "your-domain.com", https: bool = True) -> dict:
+def calculate_mcp_url(api_key: str, domain: str = "your-domain.com", https: bool = True, md5_salt: str = "") -> dict:
     """Calculate MCP endpoint URLs with dual-factor authentication"""
 
-    # Calculate MD5 hash of API key
-    api_key_hash = hashlib.md5(api_key.encode()).hexdigest()
+    # Calculate MD5 hash of API key with optional salt
+    if md5_salt:
+        hash_input = f"{md5_salt}{api_key}"
+    else:
+        hash_input = api_key
+
+    api_key_hash = hashlib.md5(hash_input.encode()).hexdigest()
 
     # Build URLs
     protocol = "https" if https else "http"
@@ -21,6 +26,7 @@ def calculate_mcp_url(api_key: str, domain: str = "your-domain.com", https: bool
     return {
         "api_key": api_key,
         "api_key_hash": api_key_hash,
+        "md5_salt_used": bool(md5_salt),
         "domain": domain,
         "protocol": protocol,
         "endpoints": {
@@ -41,13 +47,17 @@ def main():
 Examples:
   # From environment variable
   export MCP_API_KEY="your-api-key"
+  export MD5_SALT="your-salt"
   python verify_auth.py --domain your-domain.com
 
-  # From command line
+  # From command line with salt
+  python verify_auth.py --api-key your-api-key --md5-salt your-salt --domain your-domain.com
+
+  # Without salt (legacy mode)
   python verify_auth.py --api-key your-api-key --domain your-domain.com
 
   # Local testing (HTTP)
-  python verify_auth.py --api-key test-key --domain localhost:8080 --no-https
+  python verify_auth.py --api-key test-key --md5-salt test-salt --domain localhost:8080 --no-https
         """
     )
 
@@ -55,6 +65,11 @@ Examples:
         "--api-key",
         help="API key (or set MCP_API_KEY environment variable)",
         default=os.getenv("MCP_API_KEY")
+    )
+    parser.add_argument(
+        "--md5-salt",
+        help="MD5 salt (or set MD5_SALT environment variable)",
+        default=os.getenv("MD5_SALT", "")
     )
     parser.add_argument(
         "--domain",
@@ -80,7 +95,7 @@ Examples:
         sys.exit(1)
 
     # Calculate URLs
-    result = calculate_mcp_url(args.api_key, args.domain, not args.no_https)
+    result = calculate_mcp_url(args.api_key, args.domain, not args.no_https, args.md5_salt)
 
     # Output
     if args.json:
@@ -94,6 +109,7 @@ Examples:
         print()
         print(f"API Key:         {result['api_key']}")
         print(f"API Key Hash:    {result['api_key_hash']}")
+        print(f"MD5 Salt:        {'Yes (configured)' if result['md5_salt_used'] else 'No (using legacy mode)'}")
         print(f"Domain:          {result['domain']}")
         print(f"Protocol:        {result['protocol']}")
         print()
@@ -102,6 +118,8 @@ Examples:
         print(f"  Health (public):      {result['endpoints']['health']}")
         print()
         print("⚠️  Keep the MCP URL confidential. It contains authentication credentials.")
+        if not result['md5_salt_used']:
+            print("⚠️  Consider setting MD5_SALT environment variable for enhanced security.")
         print()
 
 
