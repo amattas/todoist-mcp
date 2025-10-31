@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import MagicMock, patch, call
 from datetime import datetime, date, timezone, timedelta
-from services.todoist import TodoistService
+from src.services.todoist import TodoistService
 from tests.conftest import MockTodoistTask, MockTodoistProject, MockTodoistLabel, MockTodoistDue
 
 
@@ -14,7 +14,7 @@ class TestTodoistService:
     
     def test_init_with_token(self):
         """Test service initialization with API token"""
-        with patch('services.todoist.TodoistAPI') as mock_api:
+        with patch('src.services.todoist.TodoistAPI') as mock_api:
             service = TodoistService(api_token='test_token')
             assert service.api_token == 'test_token'
             mock_api.assert_called_once_with('test_token')
@@ -22,7 +22,7 @@ class TestTodoistService:
     def test_init_with_env_token(self):
         """Test service initialization with environment variable"""
         with patch.dict('os.environ', {'TODOIST_API_TOKEN': 'env_token'}):
-            with patch('services.todoist.TodoistAPI') as mock_api:
+            with patch('src.services.todoist.TodoistAPI') as mock_api:
                 service = TodoistService()
                 assert service.api_token == 'env_token'
                 mock_api.assert_called_once_with('env_token')

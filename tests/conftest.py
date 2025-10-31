@@ -101,7 +101,7 @@ class MockTodoistComment:
 @pytest.fixture
 def mock_todoist_api():
     """Mock TodoistAPI client"""
-    with patch('services.todoist.TodoistAPI') as mock_api_class:
+    with patch('src.services.todoist.TodoistAPI') as mock_api_class:
         mock_api = MagicMock()
         mock_api_class.return_value = mock_api
         
@@ -146,209 +146,9 @@ def mock_todoist_api():
 def todoist_service(mock_todoist_api):
     """Create TodoistService with mocked API"""
     with patch.dict(os.environ, {'TODOIST_API_TOKEN': 'test_token', 'TIMEZONE': 'UTC'}):
-        from services.todoist import TodoistService
+        from src.services.todoist import TodoistService
         service = TodoistService('test_token')
         return service
-
-
-# ============================================================================
-# Home Assistant Fixtures
-# ============================================================================
-
-@pytest.fixture
-def mock_websocket():
-    """Mock WebSocket for Home Assistant"""
-    with patch('websocket.WebSocketApp') as mock_ws_class:
-        mock_ws = MagicMock()
-        mock_ws_class.return_value = mock_ws
-        
-        # Setup WebSocket behavior
-        mock_ws.send = MagicMock()
-        mock_ws.close = MagicMock()
-        mock_ws.run_forever = MagicMock()
-        
-        yield mock_ws
-
-
-@pytest.fixture
-def mock_ha_responses():
-    """Mock Home Assistant API responses"""
-    return {
-        'states': [
-            {
-                'entity_id': 'sensor.temperature',
-                'state': '22.5',
-                'attributes': {
-                    'unit_of_measurement': '°C',
-                    'friendly_name': 'Temperature'
-                }
-            },
-            {
-                'entity_id': 'light.living_room',
-                'state': 'on',
-                'attributes': {
-                    'brightness': 255,
-                    'friendly_name': 'Living Room Light'
-                }
-            }
-        ],
-        'areas': [
-            {
-                'area_id': 'living_room',
-                'name': 'Living Room',
-                'aliases': []
-            },
-            {
-                'area_id': 'bedroom',
-                'name': 'Bedroom',
-                'aliases': []
-            }
-        ],
-        'devices': [
-            {
-                'id': 'device123',
-                'name': 'Smart Light',
-                'area_id': 'living_room'
-            }
-        ]
-    }
-
-
-@pytest.fixture
-def homeassistant_client(mock_websocket, mock_ha_responses):
-    """Create HomeAssistantClient with mocked WebSocket"""
-    with patch.dict(os.environ, {
-        'HA_URL': 'http://localhost:8123',
-        'HA_TOKEN': 'test_token'
-    }):
-        with patch('requests.get') as mock_get:
-            mock_get.return_value.json.return_value = mock_ha_responses['states']
-            mock_get.return_value.status_code = 200
-            
-            from services.homeassistant import HomeAssistantClient
-            client = HomeAssistantClient(
-                url='http://localhost:8123',
-                access_token='test_token'
-            )
-            return client
-
-
-# ============================================================================
-# iCalendar Fixtures
-# ============================================================================
-
-@pytest.fixture
-def sample_ical_data():
-    """Sample iCalendar data for testing"""
-    return """BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//Test//Test Calendar//EN
-BEGIN:VEVENT
-UID:test-event-1@example.com
-DTSTART:20240101T100000Z
-DTEND:20240101T110000Z
-SUMMARY:Test Event 1
-DESCRIPTION:This is a test event
-LOCATION:Conference Room
-END:VEVENT
-BEGIN:VEVENT
-UID:test-event-2@example.com
-DTSTART:20240102T140000Z
-DTEND:20240102T150000Z
-SUMMARY:Test Event 2
-RRULE:FREQ=WEEKLY;COUNT=4
-END:VEVENT
-END:VCALENDAR"""
-
-
-@pytest.fixture
-def sample_ical_with_timezone():
-    """Sample iCalendar data with timezone information"""
-    return """BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//Test//Test Calendar//EN
-BEGIN:VTIMEZONE
-TZID:America/New_York
-BEGIN:STANDARD
-DTSTART:20231105T020000
-TZOFFSETFROM:-0400
-TZOFFSETTO:-0500
-RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU
-END:STANDARD
-BEGIN:DAYLIGHT
-DTSTART:20240310T020000
-TZOFFSETFROM:-0500
-TZOFFSETTO:-0400
-RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU
-END:DAYLIGHT
-END:VTIMEZONE
-BEGIN:VEVENT
-UID:tz-event-1@example.com
-DTSTART;TZID=America/New_York:20240101T100000
-DTEND;TZID=America/New_York:20240101T110000
-SUMMARY:Event with Timezone
-END:VEVENT
-END:VCALENDAR"""
-
-
-@pytest.fixture
-def mock_ical_feeds():
-    """Mock iCalendar feed URLs and responses"""
-    with patch('requests.get') as mock_get:
-        def side_effect(url, *args, **kwargs):
-            response = MagicMock()
-            response.status_code = 200
-            
-            if 'personal' in url:
-                response.text = """BEGIN:VCALENDAR
-VERSION:2.0
-BEGIN:VEVENT
-UID:personal-1@example.com
-DTSTART:20240101T090000Z
-DTEND:20240101T100000Z
-SUMMARY:Personal Event
-END:VEVENT
-END:VCALENDAR"""
-            elif 'work' in url:
-                response.text = """BEGIN:VCALENDAR
-VERSION:2.0
-BEGIN:VEVENT
-UID:work-1@example.com
-DTSTART:20240101T090000Z
-DTEND:20240101T100000Z
-SUMMARY:Work Meeting
-END:VEVENT
-END:VCALENDAR"""
-            else:
-                response.text = """BEGIN:VCALENDAR
-VERSION:2.0
-END:VCALENDAR"""
-            
-            return response
-        
-        mock_get.side_effect = side_effect
-        yield mock_get
-
-
-# ============================================================================
-# Helper Fixtures
-# ============================================================================
-
-@pytest.fixture
-def sample_ha_entities():
-    """Sample Home Assistant entities for categorization testing"""
-    return [
-        {'entity_id': 'sensor.temperature_living_room', 'domain': 'sensor'},
-        {'entity_id': 'sensor.humidity_bedroom', 'domain': 'sensor'},
-        {'entity_id': 'light.kitchen', 'domain': 'light'},
-        {'entity_id': 'switch.garage_door', 'domain': 'switch'},
-        {'entity_id': 'binary_sensor.motion_hallway', 'domain': 'binary_sensor'},
-        {'entity_id': 'climate.thermostat', 'domain': 'climate'},
-        {'entity_id': 'media_player.living_room_tv', 'domain': 'media_player'},
-        {'entity_id': 'lock.front_door', 'domain': 'lock'},
-        {'entity_id': 'cover.garage_door', 'domain': 'cover'},
-        {'entity_id': 'camera.driveway', 'domain': 'camera'}
-    ]
 
 
 # ============================================================================
@@ -370,11 +170,8 @@ def mock_env_vars():
     """Set up environment variables for testing"""
     env_vars = {
         'TODOIST_API_TOKEN': 'test_todoist_token',
-        'HA_URL': 'http://localhost:8123',
-        'HA_TOKEN': 'test_ha_token',
-        'ICAL_PERSONAL_URL': 'http://example.com/personal.ics',
-        'ICAL_WORK_URL': 'http://example.com/work.ics',
-        'MCP_API_KEY': 'test_mcp_key'
+        'MCP_API_KEY': 'test_mcp_key',
+        'TIMEZONE': 'US/Eastern'
     }
     with patch.dict(os.environ, env_vars):
         yield env_vars

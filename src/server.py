@@ -10,12 +10,14 @@ import logging
 from typing import Optional, Dict, Any
 from dotenv import dotenv_values
 from pathlib import Path
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from fastmcp import FastMCP
 
 # Import our service modules
-from services.todoist import TodoistService
-from services.cache import RedisCache
+from .services.todoist import TodoistService
+from .services.cache import RedisCache
 
 # Load environment variables with correct precedence
 config: Dict[str, str] = {}
@@ -49,14 +51,24 @@ mcp = FastMCP(name="TodoistMCP")
 
 # Service instances (will be initialized on first use)
 _todoist_service: Optional[TodoistService] = None
+_todoist_service_config: Optional[str] = None  # Track the config used to create the service
 _cache_service: Optional[RedisCache] = None
 
 
 def get_todoist_service() -> Optional[TodoistService]:
     """Get or initialize the Todoist service"""
-    global _todoist_service
+    global _todoist_service, _todoist_service_config
 
-    if _todoist_service is None:
+    # Get current configuration
+    current_config = os.getenv('TODOIST_API_TOKEN', '')
+
+    # Check if configuration has changed or service doesn't exist
+    if _todoist_service is None or _todoist_service_config != current_config:
+        # Clean up old service if it exists
+        if _todoist_service is not None:
+            logger.info("Configuration changed, reinitializing Todoist service")
+            _todoist_service = None
+
         api_token = os.getenv('TODOIST_API_TOKEN')
         if not api_token or api_token == 'your-todoist-api-token-here':
             logger.warning("Todoist API token not configured")
@@ -70,6 +82,7 @@ def get_todoist_service() -> Optional[TodoistService]:
                 mcp=mcp,  # Pass MCP instance to service
                 cache=cache  # Pass cache instance to service
             )
+            _todoist_service_config = current_config  # Save the config that was used
             logger.info("Initialized Todoist service" + (" with caching" if cache else ""))
         except Exception as e:
             logger.error(f"Failed to initialize Todoist service: {e}")
@@ -149,6 +162,7 @@ def get_server_status() -> Dict[str, Any]:
 ## Returns
 • Debug mode status
 • Service configuration status
+• Timezone configuration
 
 ## Use Cases
 • Check configuration
@@ -166,7 +180,63 @@ def get_server_config() -> Dict[str, Any]:
     """Get the current server configuration (non-sensitive)"""
     return {
         "debug_mode": os.getenv('DEBUG', 'false').lower() == 'true',
-        "todoist_configured": bool(os.getenv('TODOIST_API_TOKEN'))
+        "todoist_configured": bool(os.getenv('TODOIST_API_TOKEN')),
+        "timezone": os.getenv('TIMEZONE', 'US/Eastern')
+    }
+
+
+# ==================== Current DateTime Tool ====================
+
+@mcp.tool(
+    name="get_current_datetime",
+    description="""Get the current date and time in the configured timezone.
+
+## Returns
+• Current date (YYYY-MM-DD format)
+• Current time (HH:MM:SS format)
+• Current datetime (ISO 8601 format)
+• Configured timezone name
+• UTC offset
+• Day of week
+• Unix timestamp
+
+## Use Cases
+• Reference current date/time for task scheduling
+• Understand timezone context for deadlines
+• Schedule tasks relative to current time
+
+## Related Tools
+• Use Todoist task creation tools with due dates
+• Use `get_server_config` to see configured timezone
+
+⚠️ **Note**: The timezone is configured via the TIMEZONE environment variable (default: US/Eastern)""",
+    title="Current Date & Time",
+    annotations={"title": "Current Date & Time"}
+)
+def get_current_datetime() -> Dict[str, Any]:
+    """Get the current date and time in the configured timezone"""
+    # Get timezone from environment variable, default to US/Eastern
+    timezone_str = os.getenv('TIMEZONE', 'US/Eastern')
+
+    try:
+        tz = ZoneInfo(timezone_str)
+    except Exception as e:
+        logger.warning(f"Invalid timezone '{timezone_str}': {e}. Falling back to US/Eastern.")
+        tz = ZoneInfo('US/Eastern')
+        timezone_str = 'US/Eastern'
+
+    # Get current datetime in the configured timezone
+    now = datetime.now(tz)
+
+    return {
+        "date": now.strftime("%Y-%m-%d"),
+        "time": now.strftime("%H:%M:%S"),
+        "datetime": now.isoformat(),
+        "timezone": timezone_str,
+        "utc_offset": now.strftime("%z"),
+        "timezone_abbr": now.strftime("%Z"),
+        "day_of_week": now.strftime("%A"),
+        "timestamp": int(now.timestamp())
     }
 
 

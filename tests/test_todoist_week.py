@@ -4,7 +4,7 @@ from datetime import datetime, date, timedelta
 from unittest.mock import Mock, patch
 from zoneinfo import ZoneInfo
 
-from services.todoist import TodoistService
+from src.services.todoist import TodoistService
 from tests.conftest import MockTodoistTask, MockTodoistDue
 
 

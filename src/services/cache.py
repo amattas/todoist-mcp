@@ -569,28 +569,16 @@ def _get_cache_ttl(env_var: str, default: int) -> int:
 class CacheTTL:
     """
     Standard TTL values for different data types.
-    
+
     All values can be overridden via environment variables by prefixing with CACHE_TTL_
-    For example: CACHE_TTL_HA_STATES=5 will set HA_STATES to 5 seconds
-    
+    For example: CACHE_TTL_TODOIST_TASKS=30 will set TODOIST_TASKS to 30 seconds
+
     Environment Variables:
         CACHE_TTL_TODOIST_TASKS: Task list cache (default: 60 seconds)
         CACHE_TTL_TODOIST_PROJECTS: Project list cache (default: 300 seconds)
         CACHE_TTL_TODOIST_LABELS: Label list cache (default: 600 seconds)
         CACHE_TTL_TODOIST_SECTIONS: Section list cache (default: 300 seconds)
         CACHE_TTL_TODOIST_COMMENTS: Comment cache (default: 120 seconds)
-        
-        CACHE_TTL_HA_STATES: Entity states cache (default: 3 seconds)
-        CACHE_TTL_HA_SINGLE_STATE: Single entity state (default: 2 seconds)
-        CACHE_TTL_HA_DEVICE_LIST: Device metadata cache (default: 1800 seconds)
-        CACHE_TTL_HA_ENTITY_LIST: Entity metadata cache (default: 1800 seconds)
-        CACHE_TTL_HA_AREAS: Area list cache (default: 3600 seconds)
-        CACHE_TTL_HA_SERVICES: Service list cache (default: 3600 seconds)
-        CACHE_TTL_HA_HISTORY: History data cache (default: 300 seconds)
-        
-        CACHE_TTL_CALENDAR_EVENTS: Calendar events cache (default: 900 seconds)
-        CACHE_TTL_CALENDAR_INFO: Calendar info cache (default: 1800 seconds)
-        CACHE_TTL_CALENDAR_FEED: Calendar feed cache (default: 600 seconds)
     """
     
     # Todoist
@@ -599,17 +587,3 @@ class CacheTTL:
     TODOIST_LABELS = _get_cache_ttl("TODOIST_LABELS", 600)  # 10 minutes default
     TODOIST_SECTIONS = _get_cache_ttl("TODOIST_SECTIONS", 300)  # 5 minutes default
     TODOIST_COMMENTS = _get_cache_ttl("TODOIST_COMMENTS", 120)  # 2 minutes default
-    
-    # Home Assistant
-    HA_STATES = _get_cache_ttl("HA_STATES", 3)  # 3 seconds default (real-time critical)
-    HA_SINGLE_STATE = _get_cache_ttl("HA_SINGLE_STATE", 2)  # 2 seconds default
-    HA_DEVICE_LIST = _get_cache_ttl("HA_DEVICE_LIST", 1800)  # 30 minutes default
-    HA_ENTITY_LIST = _get_cache_ttl("HA_ENTITY_LIST", 1800)  # 30 minutes default
-    HA_AREAS = _get_cache_ttl("HA_AREAS", 3600)  # 1 hour default
-    HA_SERVICES = _get_cache_ttl("HA_SERVICES", 3600)  # 1 hour default
-    HA_HISTORY = _get_cache_ttl("HA_HISTORY", 300)  # 5 minutes default
-    
-    # Calendar
-    CALENDAR_EVENTS = _get_cache_ttl("CALENDAR_EVENTS", 900)  # 15 minutes default
-    CALENDAR_INFO = _get_cache_ttl("CALENDAR_INFO", 1800)  # 30 minutes default
-    CALENDAR_FEED = _get_cache_ttl("CALENDAR_FEED", 600)  # 10 minutes default
