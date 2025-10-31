@@ -1,5 +1,6 @@
 # =============================================================================
 # Build stage: Compile dependencies and create wheels
+# Updated: 2025-10-31 - Added uvloop and httptools for performance
 # =============================================================================
 FROM python:3.11-slim AS builder
 
