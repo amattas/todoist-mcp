@@ -8,16 +8,19 @@ import hashlib
 import os
 
 
-def calculate_mcp_url(api_key: str, domain: str = "your-domain.com", https: bool = True, md5_salt: str = "") -> dict:
+def calculate_mcp_url(
+    api_key: str, domain: str = "your-domain.com", https: bool = True, md5_salt: str = ""
+) -> dict:
     """Calculate MCP endpoint URLs with dual-factor authentication"""
 
-    # Calculate MD5 hash of API key with optional salt
+    # Calculate hash of API key with optional salt
     if md5_salt:
         hash_input = f"{md5_salt}{api_key}"
     else:
         hash_input = api_key
 
-    api_key_hash = hashlib.md5(hash_input.encode()).hexdigest()
+    # Use SHA-256 to match server_remote.py and avoid weak-hash usage
+    api_key_hash = hashlib.sha256(hash_input.encode()).hexdigest()
 
     # Build URLs
     protocol = "https" if https else "http"

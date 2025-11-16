@@ -5,7 +5,6 @@ A specialized MCP server for Todoist task management
 """
 
 import os
-import sys
 import logging
 from typing import Optional, Dict, Any
 from dotenv import dotenv_values
@@ -23,14 +22,14 @@ from .services.cache import RedisCache
 config: Dict[str, str] = {}
 
 # Load from project directory if available
-for filename in ('.env', '.env.local'):
+for filename in (".env", ".env.local"):
     path = Path(filename)
     if path.exists():
         config.update(dotenv_values(path))
 
 # Also check the script's directory (supports running from elsewhere)
 script_dir = Path(__file__).parent
-for filename in ('.env', '.env.local'):
+for filename in (".env", ".env.local"):
     path = script_dir / filename
     if path.exists():
         config.update(dotenv_values(path))
@@ -41,8 +40,10 @@ for key, value in config.items():
 
 # Configure logging
 logging.basicConfig(
-    level=logging.DEBUG if os.getenv('DEBUG', 'false').lower() == 'true' else logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=(
+        logging.DEBUG if os.getenv("DEBUG", "false").lower() == "true" else logging.INFO
+    ),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,9 @@ mcp = FastMCP(name="TodoistMCP", stateless_http=True)
 
 # Service instances (will be initialized on first use)
 _todoist_service: Optional[TodoistService] = None
-_todoist_service_config: Optional[str] = None  # Track the config used to create the service
+_todoist_service_config: Optional[str] = (
+    None  # Track the config used to create the service
+)
 _cache_service: Optional[RedisCache] = None
 
 
@@ -60,7 +63,7 @@ def get_todoist_service() -> Optional[TodoistService]:
     global _todoist_service, _todoist_service_config
 
     # Get current configuration
-    current_config = os.getenv('TODOIST_API_TOKEN', '')
+    current_config = os.getenv("TODOIST_API_TOKEN", "")
 
     # Check if configuration has changed or service doesn't exist
     if _todoist_service is None or _todoist_service_config != current_config:
@@ -69,8 +72,9 @@ def get_todoist_service() -> Optional[TodoistService]:
             logger.info("Configuration changed, reinitializing Todoist service")
             _todoist_service = None
 
-        api_token = os.getenv('TODOIST_API_TOKEN')
-        if not api_token or api_token == 'your-todoist-api-token-here':
+        api_token = os.getenv("TODOIST_API_TOKEN")
+        # The placeholder value is for documentation/local defaults only; treat it as missing.
+        if not api_token or api_token == "your-todoist-api-token-here":  # nosec B105
             logger.warning("Todoist API token not configured")
             return None
 
@@ -80,10 +84,12 @@ def get_todoist_service() -> Optional[TodoistService]:
             _todoist_service = TodoistService(
                 api_token=api_token,
                 mcp=mcp,  # Pass MCP instance to service
-                cache=cache  # Pass cache instance to service
+                cache=cache,  # Pass cache instance to service
             )
             _todoist_service_config = current_config  # Save the config that was used
-            logger.info("Initialized Todoist service" + (" with caching" if cache else ""))
+            logger.info(
+                "Initialized Todoist service" + (" with caching" if cache else "")
+            )
         except Exception as e:
             logger.error(f"Failed to initialize Todoist service: {e}")
             return None
@@ -128,15 +134,11 @@ def get_cache_service() -> Optional[RedisCache]:
 ## Related Tools
 • Use `get_server_config` for configuration details""",
     title="Server Status",
-    annotations={"title": "Server Status"}
+    annotations={"title": "Server Status"},
 )
 def get_server_status() -> Dict[str, Any]:
     """Get the status of the Todoist service"""
-    status = {
-        "server": "TodoistMCP",
-        "version": "1.0.0",
-        "services": {}
-    }
+    status = {"server": "TodoistMCP", "version": "1.0.0", "services": {}}
 
     # Check Todoist service
     todoist_service = get_todoist_service()
@@ -145,9 +147,10 @@ def get_server_status() -> Dict[str, Any]:
             projects = todoist_service.get_projects()
             status["services"]["todoist"] = {
                 "status": "active",
-                "projects": len(projects)
+                "projects": len(projects),
             }
-        except:
+        except Exception as exc:
+            logger.info("Error checking Todoist service status: %s", exc)
             status["services"]["todoist"] = {"status": "error"}
     else:
         status["services"]["todoist"] = {"status": "not_configured"}
@@ -174,18 +177,19 @@ def get_server_status() -> Dict[str, Any]:
 
 ⚠️ **Note**: Sensitive values like API keys are not exposed""",
     title="Server Configuration",
-    annotations={"title": "Server Configuration"}
+    annotations={"title": "Server Configuration"},
 )
 def get_server_config() -> Dict[str, Any]:
     """Get the current server configuration (non-sensitive)"""
     return {
-        "debug_mode": os.getenv('DEBUG', 'false').lower() == 'true',
-        "todoist_configured": bool(os.getenv('TODOIST_API_TOKEN')),
-        "timezone": os.getenv('TIMEZONE', 'US/Eastern')
+        "debug_mode": os.getenv("DEBUG", "false").lower() == "true",
+        "todoist_configured": bool(os.getenv("TODOIST_API_TOKEN")),
+        "timezone": os.getenv("TIMEZONE", "US/Eastern"),
     }
 
 
 # ==================== Current DateTime Tool ====================
+
 
 @mcp.tool(
     name="get_current_datetime",
@@ -211,19 +215,21 @@ def get_server_config() -> Dict[str, Any]:
 
 ⚠️ **Note**: The timezone is configured via the TIMEZONE environment variable (default: US/Eastern)""",
     title="Current Date & Time",
-    annotations={"title": "Current Date & Time"}
+    annotations={"title": "Current Date & Time"},
 )
 def get_current_datetime() -> Dict[str, Any]:
     """Get the current date and time in the configured timezone"""
     # Get timezone from environment variable, default to US/Eastern
-    timezone_str = os.getenv('TIMEZONE', 'US/Eastern')
+    timezone_str = os.getenv("TIMEZONE", "US/Eastern")
 
     try:
         tz = ZoneInfo(timezone_str)
     except Exception as e:
-        logger.warning(f"Invalid timezone '{timezone_str}': {e}. Falling back to US/Eastern.")
-        tz = ZoneInfo('US/Eastern')
-        timezone_str = 'US/Eastern'
+        logger.warning(
+            f"Invalid timezone '{timezone_str}': {e}. Falling back to US/Eastern."
+        )
+        tz = ZoneInfo("US/Eastern")
+        timezone_str = "US/Eastern"
 
     # Get current datetime in the configured timezone
     now = datetime.now(tz)
@@ -236,11 +242,12 @@ def get_current_datetime() -> Dict[str, Any]:
         "utc_offset": now.strftime("%z"),
         "timezone_abbr": now.strftime("%Z"),
         "day_of_week": now.strftime("%A"),
-        "timestamp": int(now.timestamp())
+        "timestamp": int(now.timestamp()),
     }
 
 
 # ==================== Cache Management Tools ====================
+
 
 @mcp.tool(
     name="get_cache_stats",
@@ -262,7 +269,7 @@ def get_current_datetime() -> Dict[str, Any]:
 • Use `clear_cache` to clear cache entries
 • Use `get_cache_info` for Redis server info""",
     title="Cache Statistics",
-    annotations={"title": "Cache Statistics"}
+    annotations={"title": "Cache Statistics"},
 )
 def get_cache_stats() -> Dict[str, Any]:
     """Get cache statistics"""
@@ -292,7 +299,7 @@ def get_cache_stats() -> Dict[str, Any]:
 
 ⚠️ **Warning**: Clearing all cache may impact performance temporarily""",
     title="Clear Cache",
-    annotations={"title": "Clear Cache"}
+    annotations={"title": "Clear Cache"},
 )
 def clear_cache(pattern: Optional[str] = None) -> Dict[str, Any]:
     """Clear cache entries"""
@@ -303,23 +310,13 @@ def clear_cache(pattern: Optional[str] = None) -> Dict[str, Any]:
     if pattern:
         # Clear by pattern
         deleted = cache.delete_pattern(pattern)
-        return {
-            "status": "success",
-            "pattern": pattern,
-            "keys_deleted": deleted
-        }
+        return {"status": "success", "pattern": pattern, "keys_deleted": deleted}
     else:
         # Clear all cache
         if cache.flush_all():
-            return {
-                "status": "success",
-                "message": "All cache cleared"
-            }
+            return {"status": "success", "message": "All cache cleared"}
         else:
-            return {
-                "status": "error",
-                "message": "Failed to clear cache"
-            }
+            return {"status": "error", "message": "Failed to clear cache"}
 
 
 @mcp.tool(
@@ -342,7 +339,7 @@ def clear_cache(pattern: Optional[str] = None) -> Dict[str, Any]:
 • Use `get_cache_stats` for performance metrics
 • Use `clear_cache` to clear cache entries""",
     title="Cache Information",
-    annotations={"title": "Cache Information"}
+    annotations={"title": "Cache Information"},
 )
 def get_cache_info() -> Dict[str, Any]:
     """Get Redis server information"""
@@ -363,12 +360,9 @@ def get_cache_info() -> Dict[str, Any]:
             "uptime_seconds": info.get("uptime_in_seconds", 0),
             "connected_clients": info.get("connected_clients", 0),
             "used_memory_human": info.get("used_memory_human", "unknown"),
-            "used_memory_peak_human": info.get("used_memory_peak_human", "unknown")
+            "used_memory_peak_human": info.get("used_memory_peak_human", "unknown"),
         },
-        "keyspace": {
-            db: stats for db, stats in info.items()
-            if db.startswith("db")
-        }
+        "keyspace": {db: stats for db, stats in info.items() if db.startswith("db")},
     }
 
 
@@ -384,7 +378,7 @@ def get_cache_info() -> Dict[str, Any]:
 ## Related Tools
 • Use `get_cache_stats` to view current statistics""",
     title="Reset Cache Statistics",
-    annotations={"title": "Reset Cache Statistics"}
+    annotations={"title": "Reset Cache Statistics"},
 )
 def reset_cache_stats() -> Dict[str, Any]:
     """Reset cache statistics"""
@@ -393,10 +387,7 @@ def reset_cache_stats() -> Dict[str, Any]:
         return {"error": "Cache service not available"}
 
     cache.reset_stats()
-    return {
-        "status": "success",
-        "message": "Cache statistics reset"
-    }
+    return {"status": "success", "message": "Cache statistics reset"}
 
 
 # Initialize services on startup
@@ -418,8 +409,13 @@ if __name__ == "__main__":
     initialize_services()
 
     # Check configuration
-    if not os.getenv('TODOIST_API_TOKEN') or os.getenv('TODOIST_API_TOKEN') == 'your-todoist-api-token-here':
-        logger.warning("Todoist API token not configured. Set TODOIST_API_TOKEN in .env.local or .env")
+    if (
+        not os.getenv("TODOIST_API_TOKEN")
+        or os.getenv("TODOIST_API_TOKEN") == "your-todoist-api-token-here"
+    ):
+        logger.warning(
+            "Todoist API token not configured. Set TODOIST_API_TOKEN in .env.local or .env"
+        )
 
     # Run the server using stdio transport
     mcp.run()

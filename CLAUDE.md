@@ -117,8 +117,8 @@ All tests avoid real API calls or live tokens.
 ### Authentication (src/server_remote.py)
 
 When `MCP_API_KEY` is set:
-- **Dual-factor path**: `/app/{api_key}/{md5_hash}/mcp`
-- MD5 hash: `hashlib.md5(api_key.encode()).hexdigest()`
+- **Dual-factor path**: `/app/{api_key}/{hash}/mcp`
+- Hash: `hashlib.sha256(api_key.encode()).hexdigest()`
 - Endpoints:
   - MCP: `/app/{key}/{hash}/mcp` (authenticated)
   - Health: `/app/health` (public, no auth, fast)
@@ -317,9 +317,9 @@ The server monitors `TODOIST_API_TOKEN` and reinitializes the service when it ch
 
 The HTTP server uses a two-part path authentication:
 1. **API Key**: Secret key set via `MCP_API_KEY`
-2. **MD5 Hash**: `hashlib.md5(api_key.encode()).hexdigest()`
+2. **Hash**: `hashlib.sha256(api_key.encode()).hexdigest()`
 
-Path pattern: `/app/{api_key}/{md5_hash}/mcp`
+Path pattern: `/app/{api_key}/{hash}/mcp`
 
 This prevents simple path enumeration attacks. Use `scripts/verify_auth.py` to calculate the correct URL.
 
