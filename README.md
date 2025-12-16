@@ -1,5 +1,12 @@
 # Todoist MCP Server
 
+[![Tests](https://github.com/amattas/todoist-mcp/actions/workflows/pythonpackage.yaml/badge.svg)](https://github.com/amattas/todoist-mcp/actions/workflows/pythonpackage.yaml)
+[![codecov](https://codecov.io/gh/amattas/todoist-mcp/branch/main/graph/badge.svg)](https://codecov.io/gh/amattas/todoist-mcp)
+[![CodeQL](https://github.com/amattas/todoist-mcp/actions/workflows/codeql.yml/badge.svg)](https://github.com/amattas/todoist-mcp/actions/workflows/codeql.yml)
+[![Docs](https://github.com/amattas/todoist-mcp/actions/workflows/docs.yml/badge.svg)](https://github.com/amattas/todoist-mcp/actions/workflows/docs.yml)
+[![Pages](https://img.shields.io/badge/docs-GitHub%20Pages-0A7ACC)](https://amattas.github.io/todoist-mcp/)
+[![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+
 A specialized Model Context Protocol (MCP) server for Todoist task management. This Docker-based server enables Claude Desktop and other MCP clients to interact with Todoist for creating, updating, and querying tasks.
 
 ## Features
