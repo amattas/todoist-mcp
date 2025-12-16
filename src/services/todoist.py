@@ -715,6 +715,114 @@ class TodoistService:
                 )
             raise
 
+    def quick_add_task(self, text: str) -> Dict[str, Any]:
+        """
+        Create a task using Todoist's Quick Add syntax.
+
+        Supports natural language like:
+        - "Buy milk tomorrow p1 #Shopping @errands"
+        - "Meeting with John every Monday at 10am"
+        - "Submit report by Friday #Work"
+
+        Args:
+            text: Quick add text with natural language date, project, labels, priority
+
+        Returns:
+            Created task dictionary
+        """
+        try:
+            task = self.api.add_task_quick(text=text)
+
+            # Invalidate task cache after creation
+            if self.cache:
+                self.cache.delete_pattern("todoist:tasks:*")
+
+            return self._task_to_dict(task)
+        except Exception as e:
+            logger.error(f"Failed to quick add task: {e}")
+            raise
+
+    def get_completed_tasks(
+        self,
+        project_id: Optional[str] = None,
+        section_id: Optional[str] = None,
+        item_id: Optional[str] = None,
+        last_seen_id: Optional[str] = None,
+        limit: int = 50,
+        cursor: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Get completed tasks by completion date.
+
+        Args:
+            project_id: Filter by project
+            section_id: Filter by section
+            item_id: Filter by specific task
+            last_seen_id: For pagination
+            limit: Max results (default 50)
+            cursor: Pagination cursor
+
+        Returns:
+            Dict with completed tasks and pagination info
+        """
+        try:
+            result = self.api.get_completed_tasks_by_completion_date(
+                project_id=project_id,
+                section_id=section_id,
+                item_id=item_id,
+                last_seen_id=last_seen_id,
+                limit=limit,
+                cursor=cursor,
+            )
+            return {
+                "items": [self._task_to_dict(t) for t in result.items],
+                "cursor": getattr(result, "cursor", None),
+                "has_more": getattr(result, "has_more", False),
+            }
+        except Exception as e:
+            logger.error(f"Failed to get completed tasks: {e}")
+            raise
+
+    def get_completed_tasks_by_due_date(
+        self,
+        due_date: str,
+        project_id: Optional[str] = None,
+        timezone: Optional[str] = None,
+        cursor: Optional[str] = None,
+        limit: int = 50,
+    ) -> Dict[str, Any]:
+        """
+        Get completed tasks that were due on a specific date.
+
+        Args:
+            due_date: Due date in YYYY-MM-DD format
+            project_id: Filter by project
+            timezone: Timezone for date interpretation
+            cursor: Pagination cursor
+            limit: Max results (default 50)
+
+        Returns:
+            Dict with completed tasks and pagination info
+        """
+        self._validate_due_date_format(due_date)
+
+        try:
+            result = self.api.get_completed_tasks_by_due_date(
+                due_date=due_date,
+                project_id=project_id,
+                timezone=timezone or self.timezone_str,
+                cursor=cursor,
+                limit=limit,
+            )
+            return {
+                "items": [self._task_to_dict(t) for t in result.items],
+                "cursor": getattr(result, "cursor", None),
+                "has_more": getattr(result, "has_more", False),
+            }
+        except Exception as e:
+            logger.error(f"Failed to get completed tasks by due date: {e}")
+            raise
+
     # ========== PROJECT OPERATIONS ==========
 
     @cache_aside(
@@ -818,9 +926,61 @@ class TodoistService:
     def delete_project(self, project_id: str) -> bool:
         """Delete a project"""
         try:
-            return self.api.delete_project(project_id)
+            result = self.api.delete_project(project_id)
+
+            # Invalidate caches after deletion
+            if self.cache:
+                self.cache.delete_pattern("todoist:projects:*")
+                self.cache.delete_pattern("todoist:tasks:*")
+                self.cache.delete_pattern("todoist:sections:*")
+
+            return result
         except Exception as e:
             logger.error(f"Failed to delete project {project_id}: {e}")
+            raise
+
+    def archive_project(self, project_id: str) -> bool:
+        """Archive a project"""
+        try:
+            result = self.api.archive_project(project_id)
+
+            # Invalidate project cache after archiving
+            if self.cache:
+                self.cache.delete_pattern("todoist:projects:*")
+
+            return result
+        except Exception as e:
+            logger.error(f"Failed to archive project {project_id}: {e}")
+            raise
+
+    def unarchive_project(self, project_id: str) -> bool:
+        """Unarchive a project"""
+        try:
+            result = self.api.unarchive_project(project_id)
+
+            # Invalidate project cache after unarchiving
+            if self.cache:
+                self.cache.delete_pattern("todoist:projects:*")
+
+            return result
+        except Exception as e:
+            logger.error(f"Failed to unarchive project {project_id}: {e}")
+            raise
+
+    def get_collaborators(self, project_id: str) -> List[Dict[str, Any]]:
+        """Get collaborators for a shared project"""
+        try:
+            collaborators = self.api.get_collaborators(project_id=project_id)
+            return [
+                {
+                    "id": c.id,
+                    "name": c.name,
+                    "email": c.email,
+                }
+                for c in collaborators
+            ]
+        except Exception as e:
+            logger.error(f"Failed to get collaborators for project {project_id}: {e}")
             raise
 
     # ========== SECTION OPERATIONS ==========
@@ -861,6 +1021,11 @@ class TodoistService:
             section = self.api.add_section(
                 name=name, project_id=project_id, order=order
             )
+
+            # Invalidate section cache after creation
+            if self.cache:
+                self.cache.delete_pattern("todoist:sections:*")
+
             return self._section_to_dict(section)
         except Exception as e:
             logger.error(f"Failed to create section: {e}")
@@ -870,6 +1035,11 @@ class TodoistService:
         """Update a section name"""
         try:
             section = self.api.update_section(section_id=section_id, name=name)
+
+            # Invalidate section cache after update
+            if self.cache:
+                self.cache.delete_pattern("todoist:sections:*")
+
             return self._section_to_dict(section)
         except Exception as e:
             logger.error(f"Failed to update section {section_id}: {e}")
@@ -878,7 +1048,14 @@ class TodoistService:
     def delete_section(self, section_id: str) -> bool:
         """Delete a section"""
         try:
-            return self.api.delete_section(section_id)
+            result = self.api.delete_section(section_id)
+
+            # Invalidate caches after deletion
+            if self.cache:
+                self.cache.delete_pattern("todoist:sections:*")
+                self.cache.delete_pattern("todoist:tasks:*")
+
+            return result
         except Exception as e:
             logger.error(f"Failed to delete section {section_id}: {e}")
             raise
@@ -926,6 +1103,11 @@ class TodoistService:
             label = self.api.add_label(
                 name=name, order=order, color=color, is_favorite=is_favorite
             )
+
+            # Invalidate label cache after creation
+            if self.cache:
+                self.cache.delete_pattern("todoist:labels:*")
+
             return self._label_to_dict(label)
         except Exception as e:
             logger.error(f"Failed to create label: {e}")
@@ -951,6 +1133,11 @@ class TodoistService:
                 color=color,
                 is_favorite=is_favorite,
             )
+
+            # Invalidate label cache after update
+            if self.cache:
+                self.cache.delete_pattern("todoist:labels:*")
+
             return self._label_to_dict(label)
         except Exception as e:
             logger.error(f"Failed to update label {label_id}: {e}")
@@ -959,9 +1146,54 @@ class TodoistService:
     def delete_label(self, label_id: str) -> bool:
         """Delete a label"""
         try:
-            return self.api.delete_label(label_id)
+            result = self.api.delete_label(label_id)
+
+            # Invalidate caches after deletion
+            if self.cache:
+                self.cache.delete_pattern("todoist:labels:*")
+                self.cache.delete_pattern("todoist:tasks:*")
+
+            return result
         except Exception as e:
             logger.error(f"Failed to delete label {label_id}: {e}")
+            raise
+
+    def get_shared_labels(self) -> List[str]:
+        """Get all shared labels (labels used across shared projects)"""
+        try:
+            return list(self.api.get_shared_labels())
+        except Exception as e:
+            logger.error(f"Failed to get shared labels: {e}")
+            raise
+
+    def rename_shared_label(self, old_name: str, new_name: str) -> bool:
+        """Rename a shared label across all shared projects"""
+        try:
+            result = self.api.rename_shared_label(name=old_name, new_name=new_name)
+
+            # Invalidate caches after rename
+            if self.cache:
+                self.cache.delete_pattern("todoist:labels:*")
+                self.cache.delete_pattern("todoist:tasks:*")
+
+            return result
+        except Exception as e:
+            logger.error(f"Failed to rename shared label '{old_name}': {e}")
+            raise
+
+    def remove_shared_label(self, name: str) -> bool:
+        """Remove a shared label from all shared projects"""
+        try:
+            result = self.api.remove_shared_label(name=name)
+
+            # Invalidate caches after removal
+            if self.cache:
+                self.cache.delete_pattern("todoist:labels:*")
+                self.cache.delete_pattern("todoist:tasks:*")
+
+            return result
+        except Exception as e:
+            logger.error(f"Failed to remove shared label '{name}': {e}")
             raise
 
     # ========== COMMENT OPERATIONS ==========
@@ -1477,6 +1709,82 @@ Updated task object with new location
             annotations={"title": "Move Todoist Task"},
         )(self.move_task_for_mcp)
 
+        self.mcp.tool(
+            name="quick_add_todoist_task",
+            description="""Create a task using Todoist's Quick Add natural language syntax.
+
+## Parameters
+• text: Quick add text (required)
+  - Supports natural language dates, projects, labels, priorities
+
+## Syntax Examples
+• "Buy milk tomorrow p1 #Shopping @errands"
+• "Meeting with John every Monday at 10am"
+• "Submit report by Friday #Work"
+• "Call mom p2 @phone"
+• "Review PR today #dev @work"
+
+## Syntax Guide
+• Dates: tomorrow, next Monday, Jan 15, every week
+• Priority: p1, p2, p3, p4 (p1 is highest)
+• Project: #ProjectName
+• Labels: @label1 @label2
+• Time: at 10am, at 2:30pm
+
+## Returns
+Created task object with parsed properties
+
+## Use Cases
+• Fast task entry with natural language
+• Creating recurring tasks easily
+• Quick capture without separate fields""",
+            title="Quick Add Todoist Task",
+            annotations={"title": "Quick Add Todoist Task"},
+        )(self.quick_add_task)
+
+        self.mcp.tool(
+            name="get_todoist_completed_tasks",
+            description="""Get completed tasks by completion date.
+
+## Parameters
+• project_id: Filter by project (optional)
+• section_id: Filter by section (optional)
+• limit: Max results, default 50 (optional)
+
+## Returns
+• items: List of completed tasks
+• has_more: Whether more results exist
+• cursor: Pagination cursor for next page
+
+## Use Cases
+• Review completed work
+• Track productivity
+• Find recently finished tasks""",
+            title="Get Completed Tasks",
+            annotations={"title": "Get Completed Tasks"},
+        )(self.get_completed_tasks)
+
+        self.mcp.tool(
+            name="get_todoist_completed_by_due_date",
+            description="""Get completed tasks that were due on a specific date.
+
+## Parameters
+• due_date: Date in YYYY-MM-DD format (required)
+• project_id: Filter by project (optional)
+• limit: Max results, default 50 (optional)
+
+## Returns
+• items: List of completed tasks due on that date
+• has_more: Whether more results exist
+
+## Use Cases
+• See what was accomplished on a specific day
+• Review tasks completed for a deadline
+• Historical task analysis""",
+            title="Get Completed Tasks by Due Date",
+            annotations={"title": "Get Completed Tasks by Due Date"},
+        )(self.get_completed_tasks_by_due_date)
+
         # Project tools
         # Commented out - use resources instead for read-only data
         # self.mcp.tool(
@@ -1546,6 +1854,91 @@ The parent_id is set at creation and cannot be modified via API.""",
             annotations={"title": "Update Todoist Project"},
         )(self.update_project)
 
+        self.mcp.tool(
+            name="delete_todoist_project",
+            description="""Permanently delete a project and all its tasks.
+
+## Parameters
+• project_id: Project ID to delete (required)
+  - Call `get_todoist_projects` to see available project IDs
+
+## Returns
+Success/error status
+
+## Use Cases
+• Remove unused projects
+• Clean up test projects
+• Delete completed project areas
+
+⚠️ **Warning**: This permanently deletes the project AND all tasks within it.
+This action cannot be undone.""",
+            title="Delete Todoist Project",
+            annotations={"title": "Delete Todoist Project"},
+        )(self.delete_project_for_mcp)
+
+        self.mcp.tool(
+            name="archive_todoist_project",
+            description="""Archive a project (hide without deleting).
+
+## Parameters
+• project_id: Project ID to archive (required)
+  - Call `get_todoist_projects` to see available project IDs
+
+## Returns
+Success/error status
+
+## Use Cases
+• Hide completed projects
+• Temporarily remove projects from view
+• Preserve project data while decluttering
+
+## Notes
+• Archived projects can be restored with unarchive_todoist_project
+• Tasks remain intact but hidden""",
+            title="Archive Todoist Project",
+            annotations={"title": "Archive Todoist Project"},
+        )(self.archive_project_for_mcp)
+
+        self.mcp.tool(
+            name="unarchive_todoist_project",
+            description="""Restore an archived project.
+
+## Parameters
+• project_id: Project ID to unarchive (required)
+
+## Returns
+Success/error status
+
+## Use Cases
+• Restore accidentally archived projects
+• Reactivate old projects
+• Bring back completed projects for reference""",
+            title="Unarchive Todoist Project",
+            annotations={"title": "Unarchive Todoist Project"},
+        )(self.unarchive_project_for_mcp)
+
+        self.mcp.tool(
+            name="get_todoist_collaborators",
+            description="""Get collaborators for a shared project.
+
+## Parameters
+• project_id: Shared project ID (required)
+  - Call `get_todoist_projects` to see available project IDs
+
+## Returns
+List of collaborators with:
+• id: Collaborator user ID
+• name: Display name
+• email: Email address
+
+## Use Cases
+• See who has access to a project
+• Get user IDs for task assignment
+• Review project sharing""",
+            title="Get Project Collaborators",
+            annotations={"title": "Get Project Collaborators"},
+        )(self.get_collaborators)
+
         # Label tools
         # Commented out - use resources instead for read-only data
         # self.mcp.tool(
@@ -1574,6 +1967,264 @@ Created label object with all properties
             title="Create Todoist Label",
             annotations={"title": "Create Todoist Label"},
         )(self.create_label)
+
+        self.mcp.tool(
+            name="update_todoist_label",
+            description="""Update an existing label in Todoist.
+
+## Parameters
+• label_id: Label ID to update (required)
+  - Call `get_todoist_labels` to see available label IDs
+• name: New label name (optional)
+• color: New label color (optional)
+  - Call `get_todoist_colors` to see available colors
+• is_favorite: Mark as favorite (boolean, optional)
+
+## Returns
+Updated label object with all properties
+
+## Use Cases
+• Rename existing labels
+• Change label color
+• Toggle favorite status""",
+            title="Update Todoist Label",
+            annotations={"title": "Update Todoist Label"},
+        )(self.update_label_for_mcp)
+
+        self.mcp.tool(
+            name="delete_todoist_label",
+            description="""Delete a label from Todoist.
+
+## Parameters
+• label_id: Label ID to delete (required)
+  - Call `get_todoist_labels` to see available label IDs
+
+## Returns
+Success/error status
+
+## Use Cases
+• Remove unused labels
+• Clean up label organization
+
+⚠️ **Note**: This removes the label from all tasks that use it.""",
+            title="Delete Todoist Label",
+            annotations={"title": "Delete Todoist Label"},
+        )(self.delete_label_for_mcp)
+
+        self.mcp.tool(
+            name="get_todoist_shared_labels",
+            description="""Get all shared labels (labels used in shared projects).
+
+## Returns
+List of shared label names
+
+## Use Cases
+• See labels available across shared projects
+• Coordinate labeling with collaborators""",
+            title="Get Shared Labels",
+            annotations={"title": "Get Shared Labels"},
+        )(self.get_shared_labels_for_mcp)
+
+        self.mcp.tool(
+            name="rename_todoist_shared_label",
+            description="""Rename a shared label across all shared projects.
+
+## Parameters
+• old_name: Current label name (required)
+• new_name: New label name (required)
+
+## Returns
+Success/error status
+
+## Use Cases
+• Standardize label names across projects
+• Fix label typos in shared projects""",
+            title="Rename Shared Label",
+            annotations={"title": "Rename Shared Label"},
+        )(self.rename_shared_label_for_mcp)
+
+        self.mcp.tool(
+            name="remove_todoist_shared_label",
+            description="""Remove a shared label from all shared projects.
+
+## Parameters
+• name: Shared label name to remove (required)
+
+## Returns
+Success/error status
+
+## Use Cases
+• Clean up shared labels
+• Remove deprecated labels from shared projects""",
+            title="Remove Shared Label",
+            annotations={"title": "Remove Shared Label"},
+        )(self.remove_shared_label_for_mcp)
+
+        # Section tools
+        self.mcp.tool(
+            name="get_todoist_sections",
+            description=f"""Get sections, optionally filtered by project (cached for {CacheTTL.TODOIST_SECTIONS//60} minutes).
+
+## Parameters
+• project_id: Filter by project (optional)
+  - Call `get_todoist_projects` to see available project IDs
+
+## Returns
+List of sections with:
+• id: Section ID
+• name: Section name
+• project_id: Parent project
+• order: Sort order
+
+## Use Cases
+• See available sections for task organization
+• Get section IDs for moving tasks
+• Understand project structure""",
+            title="Get Todoist Sections",
+            annotations={"title": "Get Todoist Sections"},
+        )(self.get_sections_for_mcp)
+
+        self.mcp.tool(
+            name="create_todoist_section",
+            description="""Create a new section in a project.
+
+## Parameters
+• name: Section name (required)
+• project_id: Project to create section in (required)
+  - Call `get_todoist_projects` to see available project IDs
+• order: Position in section list (optional)
+
+## Returns
+Created section object
+
+## Use Cases
+• Organize tasks within projects
+• Create workflow stages (To Do, In Progress, Done)
+• Group related tasks""",
+            title="Create Todoist Section",
+            annotations={"title": "Create Todoist Section"},
+        )(self.create_section_for_mcp)
+
+        self.mcp.tool(
+            name="update_todoist_section",
+            description="""Update a section name.
+
+## Parameters
+• section_id: Section ID to update (required)
+  - Call `get_todoist_sections` to see available section IDs
+• name: New section name (required)
+
+## Returns
+Updated section object
+
+## Use Cases
+• Rename sections
+• Fix typos in section names""",
+            title="Update Todoist Section",
+            annotations={"title": "Update Todoist Section"},
+        )(self.update_section_for_mcp)
+
+        self.mcp.tool(
+            name="delete_todoist_section",
+            description="""Delete a section from a project.
+
+## Parameters
+• section_id: Section ID to delete (required)
+  - Call `get_todoist_sections` to see available section IDs
+
+## Returns
+Success/error status
+
+## Use Cases
+• Remove unused sections
+• Simplify project structure
+
+⚠️ **Note**: Tasks in the section will be moved to the project root, not deleted.""",
+            title="Delete Todoist Section",
+            annotations={"title": "Delete Todoist Section"},
+        )(self.delete_section_for_mcp)
+
+        # Comment tools
+        self.mcp.tool(
+            name="get_todoist_comments",
+            description="""Get comments for a task or project.
+
+## Parameters (specify one)
+• task_id: Get comments on a task (optional)
+• project_id: Get comments on a project (optional)
+
+## Returns
+List of comments with:
+• id: Comment ID
+• content: Comment text
+• posted_at: Timestamp
+• attachment: File attachment info (if any)
+
+## Use Cases
+• Read task discussions
+• Review project notes
+• Get context on tasks""",
+            title="Get Todoist Comments",
+            annotations={"title": "Get Todoist Comments"},
+        )(self.get_comments_for_mcp)
+
+        self.mcp.tool(
+            name="create_todoist_comment",
+            description="""Add a comment to a task or project.
+
+## Parameters
+• content: Comment text (required)
+• task_id: Add comment to task (optional)
+• project_id: Add comment to project (optional)
+
+Note: Specify either task_id OR project_id, not both.
+
+## Returns
+Created comment object
+
+## Use Cases
+• Add notes to tasks
+• Document decisions
+• Communicate with collaborators""",
+            title="Create Todoist Comment",
+            annotations={"title": "Create Todoist Comment"},
+        )(self.create_comment_for_mcp)
+
+        self.mcp.tool(
+            name="update_todoist_comment",
+            description="""Update a comment's content.
+
+## Parameters
+• comment_id: Comment ID to update (required)
+• content: New comment text (required)
+
+## Returns
+Updated comment object
+
+## Use Cases
+• Fix typos in comments
+• Update outdated information
+• Clarify previous notes""",
+            title="Update Todoist Comment",
+            annotations={"title": "Update Todoist Comment"},
+        )(self.update_comment_for_mcp)
+
+        self.mcp.tool(
+            name="delete_todoist_comment",
+            description="""Delete a comment.
+
+## Parameters
+• comment_id: Comment ID to delete (required)
+
+## Returns
+Success/error status
+
+## Use Cases
+• Remove outdated comments
+• Delete accidental comments""",
+            title="Delete Todoist Comment",
+            annotations={"title": "Delete Todoist Comment"},
+        )(self.delete_comment_for_mcp)
 
         # Register tools (Claude cannot use resources, only tools)
         self.mcp.tool(
@@ -2098,6 +2749,182 @@ Since Todoist only has one 'due' field, we use:
             return {"labels": labels, "count": len(labels)}
         except Exception as e:
             logger.error(f"Error getting labels: {e}")
+            return {"error": str(e)}
+
+    # Project MCP Wrappers
+    def delete_project_for_mcp(self, project_id: str) -> Dict[str, Any]:
+        """MCP tool wrapper for delete_project"""
+        try:
+            result = self.delete_project(project_id)
+            return {"success": result, "message": f"Project {project_id} deleted"}
+        except Exception as e:
+            logger.error(f"Error deleting project: {e}")
+            return {"error": str(e)}
+
+    def archive_project_for_mcp(self, project_id: str) -> Dict[str, Any]:
+        """MCP tool wrapper for archive_project"""
+        try:
+            result = self.archive_project(project_id)
+            return {"success": result, "message": f"Project {project_id} archived"}
+        except Exception as e:
+            logger.error(f"Error archiving project: {e}")
+            return {"error": str(e)}
+
+    def unarchive_project_for_mcp(self, project_id: str) -> Dict[str, Any]:
+        """MCP tool wrapper for unarchive_project"""
+        try:
+            result = self.unarchive_project(project_id)
+            return {"success": result, "message": f"Project {project_id} unarchived"}
+        except Exception as e:
+            logger.error(f"Error unarchiving project: {e}")
+            return {"error": str(e)}
+
+    # Section MCP Wrappers
+    def get_sections_for_mcp(
+        self, project_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """MCP tool wrapper for get_sections"""
+        try:
+            sections = self.get_sections(project_id=project_id)
+            return {"sections": sections, "count": len(sections)}
+        except Exception as e:
+            logger.error(f"Error getting sections: {e}")
+            return {"error": str(e)}
+
+    def create_section_for_mcp(
+        self, name: str, project_id: str, order: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """MCP tool wrapper for create_section"""
+        try:
+            section = self.create_section(name=name, project_id=project_id, order=order)
+            return {"success": True, "section": section}
+        except Exception as e:
+            logger.error(f"Error creating section: {e}")
+            return {"error": str(e)}
+
+    def update_section_for_mcp(self, section_id: str, name: str) -> Dict[str, Any]:
+        """MCP tool wrapper for update_section"""
+        try:
+            section = self.update_section(section_id=section_id, name=name)
+            return {"success": True, "section": section}
+        except Exception as e:
+            logger.error(f"Error updating section: {e}")
+            return {"error": str(e)}
+
+    def delete_section_for_mcp(self, section_id: str) -> Dict[str, Any]:
+        """MCP tool wrapper for delete_section"""
+        try:
+            result = self.delete_section(section_id)
+            return {"success": result, "message": f"Section {section_id} deleted"}
+        except Exception as e:
+            logger.error(f"Error deleting section: {e}")
+            return {"error": str(e)}
+
+    # Label MCP Wrappers
+    def update_label_for_mcp(
+        self,
+        label_id: str,
+        name: Optional[str] = None,
+        color: Optional[str] = None,
+        is_favorite: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        """MCP tool wrapper for update_label"""
+        try:
+            label = self.update_label(
+                label_id=label_id, name=name, color=color, is_favorite=is_favorite
+            )
+            return {"success": True, "label": label}
+        except Exception as e:
+            logger.error(f"Error updating label: {e}")
+            return {"error": str(e)}
+
+    def delete_label_for_mcp(self, label_id: str) -> Dict[str, Any]:
+        """MCP tool wrapper for delete_label"""
+        try:
+            result = self.delete_label(label_id)
+            return {"success": result, "message": f"Label {label_id} deleted"}
+        except Exception as e:
+            logger.error(f"Error deleting label: {e}")
+            return {"error": str(e)}
+
+    def get_shared_labels_for_mcp(self) -> Dict[str, Any]:
+        """MCP tool wrapper for get_shared_labels"""
+        try:
+            labels = self.get_shared_labels()
+            return {"shared_labels": labels, "count": len(labels)}
+        except Exception as e:
+            logger.error(f"Error getting shared labels: {e}")
+            return {"error": str(e)}
+
+    def rename_shared_label_for_mcp(
+        self, old_name: str, new_name: str
+    ) -> Dict[str, Any]:
+        """MCP tool wrapper for rename_shared_label"""
+        try:
+            result = self.rename_shared_label(old_name=old_name, new_name=new_name)
+            return {
+                "success": result,
+                "message": f"Shared label '{old_name}' renamed to '{new_name}'",
+            }
+        except Exception as e:
+            logger.error(f"Error renaming shared label: {e}")
+            return {"error": str(e)}
+
+    def remove_shared_label_for_mcp(self, name: str) -> Dict[str, Any]:
+        """MCP tool wrapper for remove_shared_label"""
+        try:
+            result = self.remove_shared_label(name=name)
+            return {"success": result, "message": f"Shared label '{name}' removed"}
+        except Exception as e:
+            logger.error(f"Error removing shared label: {e}")
+            return {"error": str(e)}
+
+    # Comment MCP Wrappers
+    def get_comments_for_mcp(
+        self, task_id: Optional[str] = None, project_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """MCP tool wrapper for get_comments"""
+        try:
+            comments = self.get_comments(task_id=task_id, project_id=project_id)
+            return {"comments": comments, "count": len(comments)}
+        except Exception as e:
+            logger.error(f"Error getting comments: {e}")
+            return {"error": str(e)}
+
+    def create_comment_for_mcp(
+        self,
+        content: str,
+        task_id: Optional[str] = None,
+        project_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """MCP tool wrapper for create_comment"""
+        try:
+            comment = self.create_comment(
+                content=content, task_id=task_id, project_id=project_id
+            )
+            return {"success": True, "comment": comment}
+        except Exception as e:
+            logger.error(f"Error creating comment: {e}")
+            return {"error": str(e)}
+
+    def update_comment_for_mcp(
+        self, comment_id: str, content: str
+    ) -> Dict[str, Any]:
+        """MCP tool wrapper for update_comment"""
+        try:
+            comment = self.update_comment(comment_id=comment_id, content=content)
+            return {"success": True, "comment": comment}
+        except Exception as e:
+            logger.error(f"Error updating comment: {e}")
+            return {"error": str(e)}
+
+    def delete_comment_for_mcp(self, comment_id: str) -> Dict[str, Any]:
+        """MCP tool wrapper for delete_comment"""
+        try:
+            result = self.delete_comment(comment_id)
+            return {"success": result, "message": f"Comment {comment_id} deleted"}
+        except Exception as e:
+            logger.error(f"Error deleting comment: {e}")
             return {"error": str(e)}
 
     # Resource Methods
