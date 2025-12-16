@@ -2,8 +2,6 @@
 
 import os
 import logging
-import requests
-from uuid import uuid4
 from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional, Any
 from zoneinfo import ZoneInfo
@@ -660,8 +658,6 @@ class TodoistService:
         """
         Move a task to a different project, section, or parent task.
 
-        Uses the Sync API v9 item_move command since REST API doesn't support this.
-
         Args:
             task_id: ID of task to move
             project_id: Target project ID (moves to project root)
@@ -692,53 +688,31 @@ class TodoistService:
         if section_id:
             self._validate_section_id(section_id)
 
-        # Build the move command for Sync API
-        args = {"id": task_id}
-        if project_id:
-            args["project_id"] = project_id
-        elif section_id:
-            args["section_id"] = section_id
-        elif parent_id:
-            args["parent_id"] = parent_id
-
         try:
-            # Use Sync API v9 for moving tasks
-            response = requests.post(
-                "https://api.todoist.com/sync/v9/sync",
-                headers={"Authorization": f"Bearer {self.api_token}"},
-                json={
-                    "commands": [
-                        {
-                            "type": "item_move",
-                            "uuid": uuid4().hex,
-                            "args": args,
-                        }
-                    ]
-                },
+            # Use SDK's native move_task method
+            task = self.api.move_task(
+                task_id=task_id,
+                project_id=project_id,
+                section_id=section_id,
+                parent_id=parent_id,
             )
-            response.raise_for_status()
-
-            result = response.json()
-
-            # Check for sync errors
-            if "sync_status" in result:
-                for cmd_uuid, status in result["sync_status"].items():
-                    if status != "ok" and isinstance(status, dict):
-                        error_msg = status.get("error", "Unknown error")
-                        raise ValueError(f"Failed to move task: {error_msg}")
 
             # Invalidate task cache after move
             if self.cache:
                 self.cache.delete_pattern("todoist:tasks:*")
 
-            # Fetch and return the updated task
-            return self.get_task(task_id)
+            return self._task_to_dict(task)
 
-        except requests.RequestException as e:
-            logger.error(f"Failed to move task {task_id}: {e}")
-            raise ValueError(f"Failed to move task: {str(e)}")
         except Exception as e:
             logger.error(f"Failed to move task {task_id}: {e}")
+            if "404" in str(e) or "not found" in str(e).lower():
+                raise ValueError(
+                    f"Failed to move task: Task or target not found.\n"
+                    "To fix:\n"
+                    "  • Use `get_todoist_tasks` to verify the task exists\n"
+                    "  • Use `get_todoist_projects` to verify project ID\n"
+                    f"Original error: {str(e)}"
+                )
             raise
 
     # ========== PROJECT OPERATIONS ==========
