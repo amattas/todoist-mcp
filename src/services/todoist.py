@@ -62,9 +62,10 @@ class TodoistService:
             f"Todoist service initialized (cache: {'enabled' if self.cache else 'disabled'}, timezone: {self.timezone_str})"
         )
 
-        # Register MCP tools if MCP server is provided
+        # Register MCP tools and prompts if MCP server is provided
         if self.mcp:
             self._register_mcp_tools()
+            self._register_mcp_prompts()
 
     # ========== VALIDATION HELPERS ==========
 
@@ -2662,6 +2663,83 @@ Since Todoist only has one 'due' field, we use:
             title="Task Statistics",
             annotations={"title": "Task Statistics"},
         )(self.get_task_stats_resource)
+
+    def _register_mcp_prompts(self):
+        """Register MCP prompts for common workflows"""
+
+        @self.mcp.prompt(
+            name="create_task",
+            description="Create a new task with optional due date, priority, project, and labels",
+        )
+        def create_task_prompt(
+            task_name: str,
+            due_date: str = "",
+            priority: str = "",
+            project: str = "",
+            labels: str = "",
+        ) -> str:
+            """Generate a prompt to create a Todoist task"""
+            prompt_parts = [f"Create a new Todoist task: \"{task_name}\""]
+
+            if due_date:
+                prompt_parts.append(f"- Due date: {due_date}")
+            if priority:
+                prompt_parts.append(f"- Priority: {priority} (1=low, 4=highest)")
+            if project:
+                prompt_parts.append(f"- Project: {project}")
+            if labels:
+                prompt_parts.append(f"- Labels: {labels}")
+
+            prompt_parts.append("\nUse the create_todoist_task tool to create this task.")
+            prompt_parts.append("If a project name is provided, first use get_todoist_projects to find the project ID.")
+            prompt_parts.append("Confirm the task was created successfully and show the task details.")
+
+            return "\n".join(prompt_parts)
+
+        @self.mcp.prompt(
+            name="todays_tasks",
+            description="View all tasks due today with priorities and projects",
+        )
+        def todays_tasks_prompt() -> str:
+            """Generate a prompt to view today's tasks"""
+            return """Show me all my Todoist tasks that are due today.
+
+Use the get_todoist_tasks_today tool to fetch today's tasks.
+
+Please format the results as:
+1. Group tasks by project
+2. Show priority level (P1-P4) for each task
+3. Include any labels
+4. Highlight overdue tasks if any
+
+Also provide a quick summary:
+- Total task count
+- High priority (P1/P2) count
+- Any tasks that are overdue"""
+
+        @self.mcp.prompt(
+            name="week_tasks",
+            description="View all tasks due this week organized by day",
+        )
+        def week_tasks_prompt() -> str:
+            """Generate a prompt to view this week's tasks"""
+            return """Show me all my Todoist tasks for this week.
+
+Use the get_todoist_week_tasks tool to fetch this week's tasks.
+
+Please organize the results by:
+1. **Day of the week** (Monday through Sunday)
+2. Within each day, sort by priority (P1 first)
+3. Show the project for each task
+4. Include any labels
+
+Provide a weekly summary including:
+- Total tasks this week
+- Busiest day (most tasks)
+- High priority tasks count
+- Any overdue tasks that need immediate attention
+
+If today has many tasks, suggest which ones to prioritize first based on priority and deadlines."""
 
     # MCP Tool Wrappers
     def get_tasks_for_mcp(

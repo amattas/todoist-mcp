@@ -1,6 +1,6 @@
 # Core MCP and FastMCP framework
 mcp>=1.0.0
-fastmcp>=2.11.0
+fastmcp>=2.14.0
 
 # Web framework dependencies
 fastapi>=0.104.0
