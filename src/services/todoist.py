@@ -2,6 +2,8 @@
 
 import os
 import logging
+import requests
+from uuid import uuid4
 from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional, Any
 from zoneinfo import ZoneInfo
@@ -646,6 +648,97 @@ class TodoistService:
             return self.api.delete_task(task_id)
         except Exception as e:
             logger.error(f"Failed to delete task {task_id}: {e}")
+            raise
+
+    def move_task(
+        self,
+        task_id: str,
+        project_id: Optional[str] = None,
+        section_id: Optional[str] = None,
+        parent_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Move a task to a different project, section, or parent task.
+
+        Uses the Sync API v9 item_move command since REST API doesn't support this.
+
+        Args:
+            task_id: ID of task to move
+            project_id: Target project ID (moves to project root)
+            section_id: Target section ID (moves to section within its project)
+            parent_id: Target parent task ID (makes this a subtask)
+
+        Note: Only one of project_id, section_id, or parent_id should be set.
+              To move from a section to project root, use project_id.
+
+        Returns:
+            Updated task dictionary
+        """
+        # Validate that exactly one target is specified
+        targets = [project_id, section_id, parent_id]
+        specified = [t for t in targets if t is not None]
+        if len(specified) != 1:
+            raise ValueError(
+                "Exactly one of project_id, section_id, or parent_id must be specified.\n"
+                "Examples:\n"
+                "  • Move to project: project_id='123'\n"
+                "  • Move to section: section_id='456'\n"
+                "  • Make subtask: parent_id='789'"
+            )
+
+        # Validate the target exists
+        if project_id:
+            self._validate_project_id(project_id)
+        if section_id:
+            self._validate_section_id(section_id)
+
+        # Build the move command for Sync API
+        args = {"id": task_id}
+        if project_id:
+            args["project_id"] = project_id
+        elif section_id:
+            args["section_id"] = section_id
+        elif parent_id:
+            args["parent_id"] = parent_id
+
+        try:
+            # Use Sync API v9 for moving tasks
+            response = requests.post(
+                "https://api.todoist.com/sync/v9/sync",
+                headers={"Authorization": f"Bearer {self.api_token}"},
+                json={
+                    "commands": [
+                        {
+                            "type": "item_move",
+                            "uuid": uuid4().hex,
+                            "args": args,
+                        }
+                    ]
+                },
+            )
+            response.raise_for_status()
+
+            result = response.json()
+
+            # Check for sync errors
+            if "sync_status" in result:
+                for cmd_uuid, status in result["sync_status"].items():
+                    if status != "ok" and isinstance(status, dict):
+                        error_msg = status.get("error", "Unknown error")
+                        raise ValueError(f"Failed to move task: {error_msg}")
+
+            # Invalidate task cache after move
+            if self.cache:
+                self.cache.delete_pattern("todoist:tasks:*")
+
+            # Fetch and return the updated task
+            return self.get_task(task_id)
+
+        except requests.RequestException as e:
+            logger.error(f"Failed to move task {task_id}: {e}")
+            raise ValueError(f"Failed to move task: {str(e)}")
+        except Exception as e:
+            logger.error(f"Failed to move task {task_id}: {e}")
             raise
 
     # ========== PROJECT OPERATIONS ==========
@@ -1382,6 +1475,34 @@ Success/error status
             annotations={"title": "Delete Todoist Task"},
         )(self.delete_task_for_mcp)
 
+        self.mcp.tool(
+            name="move_todoist_task",
+            description="""Move a task to a different project, section, or make it a subtask.
+
+## Parameters (specify exactly ONE)
+• task_id: Task ID to move (required)
+• project_id: Target project ID - moves task to project root (optional)
+  - Call `get_todoist_projects` to see available projects
+• section_id: Target section ID - moves task to section (optional)
+  - Sections are within projects
+• parent_id: Target parent task ID - makes this a subtask (optional)
+
+## Important
+Only ONE of project_id, section_id, or parent_id can be specified.
+To move from a section back to project root, use project_id.
+
+## Returns
+Updated task object with new location
+
+## Use Cases
+• Reorganize tasks between projects
+• Move tasks into sections for better organization
+• Create task hierarchies with subtasks
+• Move tasks out of sections to project root""",
+            title="Move Todoist Task",
+            annotations={"title": "Move Todoist Task"},
+        )(self.move_task_for_mcp)
+
         # Project tools
         # Commented out - use resources instead for read-only data
         # self.mcp.tool(
@@ -1392,24 +1513,33 @@ Success/error status
 
         self.mcp.tool(
             name="create_todoist_project",
-            description="""Create a new project in Todoist.
+            description="""Create a new project or sub-project in Todoist.
 
 ## Parameters
 • name: Project name (required)
-• parent_id: Parent project ID for sub-projects (optional)
+• parent_id: Parent project ID to create a sub-project (optional)
   - Call `get_todoist_projects` to see available parent projects
+  - Sub-projects appear nested under their parent
+  - Sub-projects inherit some parent settings
 • color: Project color (optional)
   - Call `get_todoist_colors` to see available colors
 • is_favorite: Mark as favorite (boolean, optional)
 • view_style: 'list' or 'board' view (optional)
 
 ## Returns
-Created project object with all properties
+Created project object with all properties including parent_id
 
 ## Use Cases
-• Organize tasks into categories
-• Create project hierarchies
-• Set up new work areas""",
+• Create top-level projects for major areas (Work, Personal, etc.)
+• Create sub-projects for categories within a parent project
+• Build project hierarchies for complex organization
+
+## Examples
+• Top-level: name="Work" (no parent_id)
+• Sub-project: name="Q1 Goals", parent_id="<work_project_id>"
+• Nested: name="Marketing", parent_id="<q1_goals_id>"
+
+⚠️ **Note**: Once created, a project's parent cannot be changed via the API""",
             title="Create Todoist Project",
             annotations={"title": "Create Todoist Project"},
         )(self.create_project)
@@ -1434,7 +1564,10 @@ Updated project object with all properties
 • Rename existing projects
 • Change project color for better organization
 • Toggle favorite status
-• Switch between list and board views""",
+• Switch between list and board views
+
+⚠️ **Limitation**: Cannot change project's parent (move sub-project).
+The parent_id is set at creation and cannot be modified via API.""",
             title="Update Todoist Project",
             annotations={"title": "Update Todoist Project"},
         )(self.update_project)
@@ -1947,6 +2080,32 @@ Since Todoist only has one 'due' field, we use:
             return {"success": result, "message": f"Task {task_id} deleted"}
         except Exception as e:
             logger.error(f"Error deleting task: {e}")
+            return {"error": str(e)}
+
+    def move_task_for_mcp(
+        self,
+        task_id: str,
+        project_id: Optional[str] = None,
+        section_id: Optional[str] = None,
+        parent_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """MCP tool wrapper for move_task"""
+        try:
+            task = self.move_task(
+                task_id=task_id,
+                project_id=project_id,
+                section_id=section_id,
+                parent_id=parent_id,
+            )
+            return {
+                "success": True,
+                "message": f"Task {task_id} moved successfully",
+                "task": task,
+            }
+        except ValueError as e:
+            return {"error": str(e)}
+        except Exception as e:
+            logger.error(f"Error moving task: {e}")
             return {"error": str(e)}
 
     def get_projects_for_mcp(self) -> Dict[str, Any]:
