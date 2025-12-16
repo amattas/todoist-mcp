@@ -2679,7 +2679,7 @@ Since Todoist only has one 'due' field, we use:
             labels: str = "",
         ) -> str:
             """Generate a prompt to create a Todoist task"""
-            prompt_parts = [f"Create a new Todoist task: \"{task_name}\""]
+            prompt_parts = [f'Create a new Todoist task: "{task_name}"']
 
             if due_date:
                 prompt_parts.append(f"- Due date: {due_date}")
@@ -2690,9 +2690,15 @@ Since Todoist only has one 'due' field, we use:
             if labels:
                 prompt_parts.append(f"- Labels: {labels}")
 
-            prompt_parts.append("\nUse the create_todoist_task tool to create this task.")
-            prompt_parts.append("If a project name is provided, first use get_todoist_projects to find the project ID.")
-            prompt_parts.append("Confirm the task was created successfully and show the task details.")
+            prompt_parts.append(
+                "\nUse the create_todoist_task tool to create this task."
+            )
+            prompt_parts.append(
+                "If a project name is provided, first use get_todoist_projects to find the project ID."
+            )
+            prompt_parts.append(
+                "Confirm the task was created successfully and show the task details."
+            )
 
             return "\n".join(prompt_parts)
 
@@ -2858,9 +2864,7 @@ If today has many tasks, suggest which ones to prioritize first based on priorit
             return {"error": str(e)}
 
     # Section MCP Wrappers
-    def get_sections_for_mcp(
-        self, project_id: Optional[str] = None
-    ) -> Dict[str, Any]:
+    def get_sections_for_mcp(self, project_id: Optional[str] = None) -> Dict[str, Any]:
         """MCP tool wrapper for get_sections"""
         try:
             sections = self.get_sections(project_id=project_id)
@@ -2985,9 +2989,7 @@ If today has many tasks, suggest which ones to prioritize first based on priorit
             logger.error(f"Error creating comment: {e}")
             return {"error": str(e)}
 
-    def update_comment_for_mcp(
-        self, comment_id: str, content: str
-    ) -> Dict[str, Any]:
+    def update_comment_for_mcp(self, comment_id: str, content: str) -> Dict[str, Any]:
         """MCP tool wrapper for update_comment"""
         try:
             comment = self.update_comment(comment_id=comment_id, content=content)

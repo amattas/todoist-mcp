@@ -568,7 +568,9 @@ class TestTodoistService:
         todoist_service.get_completed_tasks(project_id="proj123", limit=10)
 
         mock_todoist_api.get_completed_tasks_by_completion_date.assert_called_once()
-        call_kwargs = mock_todoist_api.get_completed_tasks_by_completion_date.call_args.kwargs
+        call_kwargs = (
+            mock_todoist_api.get_completed_tasks_by_completion_date.call_args.kwargs
+        )
         assert call_kwargs["project_id"] == "proj123"
         assert call_kwargs["limit"] == 10
 
@@ -657,7 +659,9 @@ class TestTodoistService:
 
     def test_create_section(self, todoist_service, mock_todoist_api):
         """Test creating a section"""
-        section = todoist_service.create_section(name="New Section", project_id="proj123")
+        section = todoist_service.create_section(
+            name="New Section", project_id="proj123"
+        )
 
         assert section["name"] == "New Section"
         mock_todoist_api.add_section.assert_called_once()
@@ -767,7 +771,9 @@ class TestTodoistService:
 
     def test_rename_shared_label_for_mcp(self, todoist_service, mock_todoist_api):
         """Test MCP wrapper for renaming shared label"""
-        result = todoist_service.rename_shared_label_for_mcp(old_name="old", new_name="new")
+        result = todoist_service.rename_shared_label_for_mcp(
+            old_name="old", new_name="new"
+        )
 
         assert result["success"] is True
         assert "renamed" in result["message"]
@@ -797,14 +803,18 @@ class TestTodoistService:
 
     def test_create_comment(self, todoist_service, mock_todoist_api):
         """Test creating a comment"""
-        comment = todoist_service.create_comment(content="New Comment", task_id="task123")
+        comment = todoist_service.create_comment(
+            content="New Comment", task_id="task123"
+        )
 
         assert comment["content"] == "New Comment"
         mock_todoist_api.add_comment.assert_called_once()
 
     def test_update_comment(self, todoist_service, mock_todoist_api):
         """Test updating a comment"""
-        comment = todoist_service.update_comment(comment_id="1", content="Updated Comment")
+        comment = todoist_service.update_comment(
+            comment_id="1", content="Updated Comment"
+        )
 
         assert comment["content"] == "Updated Comment"
         mock_todoist_api.update_comment.assert_called_once_with(
@@ -835,7 +845,9 @@ class TestTodoistService:
 
     def test_update_comment_for_mcp(self, todoist_service, mock_todoist_api):
         """Test MCP wrapper for updating comment"""
-        result = todoist_service.update_comment_for_mcp(comment_id="1", content="Updated")
+        result = todoist_service.update_comment_for_mcp(
+            comment_id="1", content="Updated"
+        )
 
         assert result["success"] is True
         assert "comment" in result
@@ -1035,7 +1047,9 @@ class TestTodoistService:
         """Test MCP wrapper for creating section with error"""
         mock_todoist_api.add_section.side_effect = Exception("Create failed")
 
-        result = todoist_service.create_section_for_mcp(name="Test", project_id="proj123")
+        result = todoist_service.create_section_for_mcp(
+            name="Test", project_id="proj123"
+        )
 
         assert "error" in result
 
@@ -1083,7 +1097,9 @@ class TestTodoistService:
         """Test MCP wrapper for renaming shared label with error"""
         mock_todoist_api.rename_shared_label.side_effect = Exception("Rename failed")
 
-        result = todoist_service.rename_shared_label_for_mcp(old_name="old", new_name="new")
+        result = todoist_service.rename_shared_label_for_mcp(
+            old_name="old", new_name="new"
+        )
 
         assert "error" in result
 

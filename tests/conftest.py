@@ -185,13 +185,23 @@ def mock_todoist_api():
         mock_api.move_task.return_value = MockTodoistTask(
             id="123", content="Moved Task", project_id="new_proj"
         )
-        mock_api.get_completed_tasks_by_completion_date.return_value = MockCompletedTasksResult(
-            items=[MockTodoistTask(id="done1", content="Done Task", is_completed=True)],
-            has_more=False,
+        mock_api.get_completed_tasks_by_completion_date.return_value = (
+            MockCompletedTasksResult(
+                items=[
+                    MockTodoistTask(id="done1", content="Done Task", is_completed=True)
+                ],
+                has_more=False,
+            )
         )
-        mock_api.get_completed_tasks_by_due_date.return_value = MockCompletedTasksResult(
-            items=[MockTodoistTask(id="done2", content="Done Task 2", is_completed=True)],
-            has_more=False,
+        mock_api.get_completed_tasks_by_due_date.return_value = (
+            MockCompletedTasksResult(
+                items=[
+                    MockTodoistTask(
+                        id="done2", content="Done Task 2", is_completed=True
+                    )
+                ],
+                has_more=False,
+            )
         )
 
         # Project operations
@@ -205,7 +215,9 @@ def mock_todoist_api():
         mock_api.archive_project.return_value = True
         mock_api.unarchive_project.return_value = True
         mock_api.get_collaborators.return_value = [
-            MockTodoistCollaborator(id="user1", name="Alice", email="alice@example.com"),
+            MockTodoistCollaborator(
+                id="user1", name="Alice", email="alice@example.com"
+            ),
             MockTodoistCollaborator(id="user2", name="Bob", email="bob@example.com"),
         ]
 
@@ -214,7 +226,9 @@ def mock_todoist_api():
             [
                 [
                     MockTodoistSection(id="1", name="To Do", project_id="proj123"),
-                    MockTodoistSection(id="2", name="In Progress", project_id="proj123"),
+                    MockTodoistSection(
+                        id="2", name="In Progress", project_id="proj123"
+                    ),
                 ]
             ]
         )
