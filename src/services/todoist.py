@@ -738,6 +738,11 @@ class TodoistService:
                 is_favorite=is_favorite,
                 view_style=view_style,
             )
+
+            # Invalidate cache for projects after update
+            if self.cache:
+                self.cache.delete_pattern("todoist:projects:*")
+
             return self._project_to_dict(project)
         except Exception as e:
             logger.error(f"Failed to update project {project_id}: {e}")
@@ -1408,6 +1413,31 @@ Created project object with all properties
             title="Create Todoist Project",
             annotations={"title": "Create Todoist Project"},
         )(self.create_project)
+
+        self.mcp.tool(
+            name="update_todoist_project",
+            description="""Update an existing project in Todoist.
+
+## Parameters
+• project_id: Project ID to update (required)
+  - Call `get_todoist_projects` to see available project IDs
+• name: New project name (optional)
+• color: New project color (optional)
+  - Call `get_todoist_colors` to see available colors
+• is_favorite: Mark as favorite (boolean, optional)
+• view_style: 'list' or 'board' view (optional)
+
+## Returns
+Updated project object with all properties
+
+## Use Cases
+• Rename existing projects
+• Change project color for better organization
+• Toggle favorite status
+• Switch between list and board views""",
+            title="Update Todoist Project",
+            annotations={"title": "Update Todoist Project"},
+        )(self.update_project)
 
         # Label tools
         # Commented out - use resources instead for read-only data
