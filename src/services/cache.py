@@ -1,15 +1,26 @@
 """Redis caching layer for MattasMCP services"""
 
-import os
-import json
+__all__ = [
+    "CacheConfig",
+    "CacheStats",
+    "CacheTTL",
+    "RedisCache",
+    "cache_aside",
+    "cache_key_generator",
+]
+
 import hashlib
+import json
 import logging
+import os
 import time
-from typing import Any, Optional, Dict, Callable, TypeVar
-from functools import wraps
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import wraps
+from typing import Any, TypeVar
+
 import redis
-from redis import Redis, ConnectionPool, RedisError
+from redis import ConnectionPool, Redis, RedisError
 from redis.connection import SSLConnection
 
 logger = logging.getLogger(__name__)
@@ -57,7 +68,7 @@ class CacheStats:
             return 0.0
         return (self.miss_time_sum / self.misses) * 1000
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert stats to dictionary"""
         return {
             "hits": self.hits,
@@ -102,9 +113,9 @@ class RedisCache:
 
     def __init__(
         self,
-        host: Optional[str] = None,
-        port: Optional[int] = None,
-        password: Optional[str] = None,
+        host: str | None = None,
+        port: int | None = None,
+        password: str | None = None,
         use_ssl: bool = True,
         ssl_cert_reqs: str = "required",
         max_connections: int = 50,
@@ -154,7 +165,7 @@ class RedisCache:
             pool_kwargs["ssl_ca_certs"] = None  # Use system CA bundle
 
         self.pool = ConnectionPool(**pool_kwargs)
-        self.client: Optional[Redis] = None
+        self.client: Redis | None = None
         self.stats = CacheStats()
         self._connected = False
 
@@ -169,21 +180,24 @@ class RedisCache:
             self.client.ping()
             self._connected = True
             logger.info(
-                f"Connected to Redis at {self.host}:{self.port} (SSL: {self.use_ssl})"
+                "Connected to Redis at %s:%s (SSL: %s)",
+                self.host,
+                self.port,
+                self.use_ssl,
             )
             return True
-        except (RedisError, Exception) as e:
-            logger.error(f"Failed to connect to Redis: {e}")
+        except RedisError:
+            logger.exception("Failed to connect to Redis")
             self._connected = False
             return False
 
     @classmethod
-    def from_env(cls) -> Optional["RedisCache"]:
+    def from_env(cls) -> "RedisCache | None":
         """Create RedisCache from environment variables"""
         try:
             return cls()
         except (ValueError, RedisError) as e:
-            logger.warning(f"Redis cache not available: {e}")
+            logger.warning("Redis cache not available: %s", e)
             return None
 
     def is_connected(self) -> bool:
@@ -194,7 +208,7 @@ class RedisCache:
         try:
             self.client.ping()
             return True
-        except (RedisError, Exception):
+        except RedisError:
             self._connected = False
             return False
 
@@ -246,13 +260,12 @@ class RedisCache:
                 self.stats.hits += 1
                 self.stats.hit_time_sum += elapsed
                 return self._deserialize(data)
-            else:
-                self.stats.misses += 1
-                self.stats.miss_time_sum += elapsed
-                return default
+            self.stats.misses += 1
+            self.stats.miss_time_sum += elapsed
+            return default
 
-        except (RedisError, Exception) as e:
-            logger.error(f"Cache get error for key {key}: {e}")
+        except RedisError:
+            logger.exception("Cache get error for key %s", key)
             self.stats.errors += 1
             return default
 
@@ -260,7 +273,7 @@ class RedisCache:
         self,
         key: str,
         value: Any,
-        ttl: Optional[int] = None,
+        ttl: int | None = None,
         nx: bool = False,
         xx: bool = False,
     ) -> bool:
@@ -294,8 +307,8 @@ class RedisCache:
             result = self.client.set(key, serialized, **kwargs)
             return bool(result)
 
-        except (RedisError, Exception) as e:
-            logger.error(f"Cache set error for key {key}: {e}")
+        except RedisError:
+            logger.exception("Cache set error for key %s", key)
             self.stats.errors += 1
             return False
 
@@ -307,8 +320,8 @@ class RedisCache:
         try:
             result = self.client.delete(key)
             return bool(result)
-        except (RedisError, Exception) as e:
-            logger.error(f"Cache delete error for key {key}: {e}")
+        except RedisError:
+            logger.exception("Cache delete error for key %s", key)
             return False
 
     def delete_pattern(self, pattern: str) -> int:
@@ -332,8 +345,8 @@ class RedisCache:
                     deleted += 1
             return deleted
 
-        except (RedisError, Exception) as e:
-            logger.error(f"Cache delete pattern error for {pattern}: {e}")
+        except RedisError:
+            logger.exception("Cache delete pattern error for %s", pattern)
             return 0
 
     def exists(self, key: str) -> bool:
@@ -343,7 +356,7 @@ class RedisCache:
 
         try:
             return bool(self.client.exists(key))
-        except (RedisError, Exception):
+        except RedisError:
             return False
 
     def expire(self, key: str, ttl: int) -> bool:
@@ -353,7 +366,7 @@ class RedisCache:
 
         try:
             return bool(self.client.expire(key, ttl))
-        except (RedisError, Exception):
+        except RedisError:
             return False
 
     def ttl(self, key: str) -> int:
@@ -363,7 +376,7 @@ class RedisCache:
 
         try:
             return self.client.ttl(key)
-        except (RedisError, Exception):
+        except RedisError:
             return -2
 
     def flush_all(self) -> bool:
@@ -374,8 +387,8 @@ class RedisCache:
         try:
             self.client.flushall()
             return True
-        except (RedisError, Exception) as e:
-            logger.error(f"Cache flush error: {e}")
+        except RedisError:
+            logger.exception("Cache flush error")
             return False
 
     def get_stats(self) -> CacheStats:
@@ -386,14 +399,14 @@ class RedisCache:
         """Reset cache statistics"""
         self.stats.reset()
 
-    def info(self) -> Dict[str, Any]:
+    def info(self) -> dict[str, Any]:
         """Get Redis server info"""
         if not self.is_connected():
             return {}
 
         try:
             return self.client.info()
-        except (RedisError, Exception):
+        except RedisError:
             return {}
 
     def close(self):
@@ -433,18 +446,16 @@ def cache_key_generator(prefix: str, version: str = "v1", *args, **kwargs) -> st
         if params:
             param_str = json.dumps(params, sort_keys=True, default=str)
             # MD5 used only to shorten cache key component (not for security)
-            param_hash = hashlib.md5(
-                param_str.encode(), usedforsecurity=False
-            ).hexdigest()[:8]
+            param_hash = hashlib.md5(param_str.encode(), usedforsecurity=False).hexdigest()[:8]
             parts.append(param_hash)
 
     return ":".join(parts)
 
 
 def cache_aside(
-    config: Optional[CacheConfig] = None,
-    cache_instance: Optional[RedisCache] = None,
-    key_func: Optional[Callable] = None,
+    config: CacheConfig | None = None,
+    cache_instance: RedisCache | None = None,
+    key_func: Callable | None = None,
 ):
     """
     Decorator for cache-aside pattern
@@ -468,10 +479,9 @@ def cache_aside(
         def wrapper(*args, **kwargs) -> T:
             # Get cache instance
             cache = cache_instance
-            if cache is None:
-                # Try to get from first argument if it has a cache attribute
-                if args and hasattr(args[0], "cache"):
-                    cache = args[0].cache
+            # Try to get from first argument if it has a cache attribute
+            if cache is None and args and hasattr(args[0], "cache"):
+                cache = args[0].cache
 
             # If no cache available, just call function
             if cache is None or not cache.is_connected():
@@ -495,13 +505,11 @@ def cache_aside(
             cached_value = cache.get(cache_key)
 
             if cached_value is not None:
-                logger.debug(
-                    f"Cache hit for {cache_key} ({time.time() - start_time:.3f}s)"
-                )
+                logger.debug("Cache hit for %s (%.3fs)", cache_key, time.time() - start_time)
                 return cached_value
 
             # Cache miss - call function
-            logger.debug(f"Cache miss for {cache_key}")
+            logger.debug("Cache miss for %s", cache_key)
             result = func(*args, **kwargs)
 
             # Store in cache
@@ -521,18 +529,17 @@ def cache_aside(
 
 
 def _invalidate_cache(
-    cache_instance: Optional[RedisCache],
+    cache_instance: RedisCache | None,
     config: CacheConfig,
-    key_func: Optional[Callable],
+    key_func: Callable | None,
     func: Callable,
     *args,
     **kwargs,
 ) -> bool:
     """Invalidate cache for specific function call"""
     cache = cache_instance
-    if cache is None:
-        if args and hasattr(args[0], "cache"):
-            cache = args[0].cache
+    if cache is None and args and hasattr(args[0], "cache"):
+        cache = args[0].cache
 
     if cache is None:
         return False
@@ -556,16 +563,25 @@ def _get_cache_ttl(env_var: str, default: int) -> int:
             value = int(env_value)
             if value < 0:
                 logger.warning(
-                    f"Invalid negative TTL for CACHE_TTL_{env_var}: {value}, using default: {default}"
+                    "Invalid negative TTL for CACHE_TTL_%s: %s, using default: %s",
+                    env_var,
+                    value,
+                    default,
                 )
                 return default
             logger.debug(
-                f"Using custom TTL for {env_var}: {value} seconds (default was {default})"
+                "Using custom TTL for %s: %s seconds (default was %s)",
+                env_var,
+                value,
+                default,
             )
             return value
         except ValueError:
             logger.warning(
-                f"Invalid TTL value for CACHE_TTL_{env_var}: {env_value}, using default: {default}"
+                "Invalid TTL value for CACHE_TTL_%s: %s, using default: %s",
+                env_var,
+                env_value,
+                default,
             )
     return default
 

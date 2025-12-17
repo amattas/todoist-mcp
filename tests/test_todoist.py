@@ -1,14 +1,16 @@
 """Unit tests for Todoist service"""
 
-import pytest
-from unittest.mock import patch
 from datetime import date
+from unittest.mock import patch
+
+import pytest
+
 from src.services.todoist import TodoistService
 from tests.conftest import (
-    MockTodoistTask,
-    MockTodoistProject,
-    MockTodoistLabel,
     MockTodoistDue,
+    MockTodoistLabel,
+    MockTodoistProject,
+    MockTodoistTask,
 )
 
 
@@ -26,17 +28,21 @@ class TestTodoistService:
 
     def test_init_with_env_token(self):
         """Test service initialization with environment variable"""
-        with patch.dict("os.environ", {"TODOIST_API_TOKEN": "env_token"}):
-            with patch("src.services.todoist.TodoistAPI") as mock_api:
-                service = TodoistService()
-                assert service.api_token == "env_token"
-                mock_api.assert_called_once_with("env_token")
+        with (
+            patch.dict("os.environ", {"TODOIST_API_TOKEN": "env_token"}),
+            patch("src.services.todoist.TodoistAPI") as mock_api,
+        ):
+            service = TodoistService()
+            assert service.api_token == "env_token"
+            mock_api.assert_called_once_with("env_token")
 
     def test_init_without_token_raises_error(self):
         """Test that initialization without token raises ValueError"""
-        with patch.dict("os.environ", {}, clear=True):
-            with pytest.raises(ValueError, match="Todoist API token is required"):
-                TodoistService()
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            pytest.raises(ValueError, match="Todoist API token is required"),
+        ):
+            TodoistService()
 
     # ========== VALIDATION TESTS ==========
 
@@ -100,9 +106,7 @@ class TestTodoistService:
         """Test due date format validation with valid dates"""
         todoist_service._validate_due_date_format(date_str)  # Should not raise
 
-    @pytest.mark.parametrize(
-        "date_str", ["12/31/2024", "2024-13-01", "invalid", "tomorrow"]
-    )
+    @pytest.mark.parametrize("date_str", ["12/31/2024", "2024-13-01", "invalid", "tomorrow"])
     def test_validate_due_date_format_invalid(self, todoist_service, date_str):
         """Test due date format validation with invalid dates"""
         with pytest.raises(ValueError, match="Invalid due_date format"):
@@ -148,8 +152,7 @@ class TestTodoistService:
         """Test getting tasks with pagination"""
         # Mock API returning 10 tasks
         mock_tasks = [
-            MockTodoistTask(id=str(i), content=f"Task {i}", priority=1)
-            for i in range(10)
+            MockTodoistTask(id=str(i), content=f"Task {i}", priority=1) for i in range(10)
         ]
         mock_todoist_api.get_tasks.return_value = iter([mock_tasks])
 
@@ -177,9 +180,7 @@ class TestTodoistService:
 
     def test_get_task(self, todoist_service, mock_todoist_api):
         """Test getting a specific task"""
-        mock_todoist_api.get_task.return_value = MockTodoistTask(
-            id="123", content="Specific Task"
-        )
+        mock_todoist_api.get_task.return_value = MockTodoistTask(id="123", content="Specific Task")
         task = todoist_service.get_task("123")
         assert task["id"] == "123"
         assert task["content"] == "Specific Task"
@@ -212,9 +213,7 @@ class TestTodoistService:
 
         assert call_args.kwargs["due_date"] == date(2024, 12, 31)
 
-    def test_create_task_for_mcp_type_conversion(
-        self, todoist_service, mock_todoist_api
-    ):
+    def test_create_task_for_mcp_type_conversion(self, todoist_service, mock_todoist_api):
         """Test MCP wrapper handles string type conversion"""
         todoist_service.create_task_for_mcp(
             content="MCP Task",
@@ -230,9 +229,7 @@ class TestTodoistService:
 
     def test_update_task(self, todoist_service, mock_todoist_api):
         """Test updating a task"""
-        task = todoist_service.update_task(
-            task_id="123", content="Updated Content", priority=2
-        )
+        task = todoist_service.update_task(task_id="123", content="Updated Content", priority=2)
 
         assert task["content"] == "Updated Task"
         mock_todoist_api.update_task.assert_called_once()
@@ -279,9 +276,7 @@ class TestTodoistService:
             id="new_proj", name="New Project"
         )
 
-        project = todoist_service.create_project(
-            name="New Project", color="blue", is_favorite=True
-        )
+        project = todoist_service.create_project(name="New Project", color="blue", is_favorite=True)
 
         assert project["name"] == "New Project"
         mock_todoist_api.add_project.assert_called_once()
@@ -316,9 +311,7 @@ class TestTodoistService:
 
     def test_create_label(self, todoist_service, mock_todoist_api):
         """Test creating a label"""
-        mock_todoist_api.add_label.return_value = MockTodoistLabel(
-            id="new_label", name="important"
-        )
+        mock_todoist_api.add_label.return_value = MockTodoistLabel(id="new_label", name="important")
 
         label = todoist_service.create_label(name="important", color="red")
 
@@ -327,9 +320,7 @@ class TestTodoistService:
 
     # ========== RESOURCE METHOD TESTS ==========
 
-    def test_get_today_tasks_resource(
-        self, todoist_service, mock_todoist_api, test_dates
-    ):
+    def test_get_today_tasks_resource(self, todoist_service, mock_todoist_api, test_dates):
         """Test getting today's tasks"""
         today_task = MockTodoistTask(
             id="1", content="Today Task", due=MockTodoistDue(date=test_dates["today"])
@@ -356,9 +347,7 @@ class TestTodoistService:
         assert "timezone" in result
         assert "date" in result
 
-    def test_get_overdue_tasks_resource(
-        self, todoist_service, mock_todoist_api, test_dates
-    ):
+    def test_get_overdue_tasks_resource(self, todoist_service, mock_todoist_api, test_dates):
         """Test getting overdue tasks"""
         overdue_task = MockTodoistTask(
             id="1",
@@ -407,9 +396,7 @@ class TestTodoistService:
         assert len(filters["filters"]) > 0
         assert any(f["filter"] == "today" for f in filters["filters"])
 
-    def test_get_task_stats_resource(
-        self, todoist_service, mock_todoist_api, test_dates
-    ):
+    def test_get_task_stats_resource(self, todoist_service, mock_todoist_api, test_dates):
         """Test getting task statistics"""
         mock_todoist_api.get_tasks.return_value = iter(
             [
@@ -417,12 +404,8 @@ class TestTodoistService:
                     MockTodoistTask(id="1", priority=4),
                     MockTodoistTask(id="2", priority=3),
                     MockTodoistTask(id="3", priority=1),
-                    MockTodoistTask(
-                        id="4", due=MockTodoistDue(date=test_dates["yesterday"])
-                    ),
-                    MockTodoistTask(
-                        id="5", due=MockTodoistDue(date=test_dates["today"])
-                    ),
+                    MockTodoistTask(id="4", due=MockTodoistDue(date=test_dates["yesterday"])),
+                    MockTodoistTask(id="5", due=MockTodoistDue(date=test_dates["today"])),
                 ]
             ]
         )
@@ -550,9 +533,7 @@ class TestTodoistService:
     def test_move_task_multiple_targets_raises_error(self, todoist_service):
         """Test move_task with multiple targets raises error"""
         with pytest.raises(ValueError, match="Exactly one of"):
-            todoist_service.move_task(
-                task_id="123", project_id="proj1", section_id="sec1"
-            )
+            todoist_service.move_task(task_id="123", project_id="proj1", section_id="sec1")
 
     def test_get_completed_tasks(self, todoist_service, mock_todoist_api):
         """Test getting completed tasks"""
@@ -568,9 +549,7 @@ class TestTodoistService:
         todoist_service.get_completed_tasks(project_id="proj123", limit=10)
 
         mock_todoist_api.get_completed_tasks_by_completion_date.assert_called_once()
-        call_kwargs = (
-            mock_todoist_api.get_completed_tasks_by_completion_date.call_args.kwargs
-        )
+        call_kwargs = mock_todoist_api.get_completed_tasks_by_completion_date.call_args.kwargs
         assert call_kwargs["project_id"] == "proj123"
         assert call_kwargs["limit"] == 10
 
@@ -659,9 +638,7 @@ class TestTodoistService:
 
     def test_create_section(self, todoist_service, mock_todoist_api):
         """Test creating a section"""
-        section = todoist_service.create_section(
-            name="New Section", project_id="proj123"
-        )
+        section = todoist_service.create_section(name="New Section", project_id="proj123")
 
         assert section["name"] == "New Section"
         mock_todoist_api.add_section.assert_called_once()
@@ -690,9 +667,7 @@ class TestTodoistService:
 
     def test_create_section_for_mcp(self, todoist_service, mock_todoist_api):
         """Test MCP wrapper for creating section"""
-        result = todoist_service.create_section_for_mcp(
-            name="New Section", project_id="proj123"
-        )
+        result = todoist_service.create_section_for_mcp(name="New Section", project_id="proj123")
 
         assert result["success"] is True
         assert "section" in result
@@ -738,9 +713,7 @@ class TestTodoistService:
         """Test renaming a shared label"""
         result = todoist_service.rename_shared_label(old_name="old", new_name="new")
         assert result is True
-        mock_todoist_api.rename_shared_label.assert_called_once_with(
-            name="old", new_name="new"
-        )
+        mock_todoist_api.rename_shared_label.assert_called_once_with(name="old", new_name="new")
 
     def test_remove_shared_label(self, todoist_service, mock_todoist_api):
         """Test removing a shared label"""
@@ -771,9 +744,7 @@ class TestTodoistService:
 
     def test_rename_shared_label_for_mcp(self, todoist_service, mock_todoist_api):
         """Test MCP wrapper for renaming shared label"""
-        result = todoist_service.rename_shared_label_for_mcp(
-            old_name="old", new_name="new"
-        )
+        result = todoist_service.rename_shared_label_for_mcp(old_name="old", new_name="new")
 
         assert result["success"] is True
         assert "renamed" in result["message"]
@@ -803,18 +774,14 @@ class TestTodoistService:
 
     def test_create_comment(self, todoist_service, mock_todoist_api):
         """Test creating a comment"""
-        comment = todoist_service.create_comment(
-            content="New Comment", task_id="task123"
-        )
+        comment = todoist_service.create_comment(content="New Comment", task_id="task123")
 
         assert comment["content"] == "New Comment"
         mock_todoist_api.add_comment.assert_called_once()
 
     def test_update_comment(self, todoist_service, mock_todoist_api):
         """Test updating a comment"""
-        comment = todoist_service.update_comment(
-            comment_id="1", content="Updated Comment"
-        )
+        comment = todoist_service.update_comment(comment_id="1", content="Updated Comment")
 
         assert comment["content"] == "Updated Comment"
         mock_todoist_api.update_comment.assert_called_once_with(
@@ -836,18 +803,14 @@ class TestTodoistService:
 
     def test_create_comment_for_mcp(self, todoist_service, mock_todoist_api):
         """Test MCP wrapper for creating comment"""
-        result = todoist_service.create_comment_for_mcp(
-            content="New Comment", task_id="task123"
-        )
+        result = todoist_service.create_comment_for_mcp(content="New Comment", task_id="task123")
 
         assert result["success"] is True
         assert "comment" in result
 
     def test_update_comment_for_mcp(self, todoist_service, mock_todoist_api):
         """Test MCP wrapper for updating comment"""
-        result = todoist_service.update_comment_for_mcp(
-            comment_id="1", content="Updated"
-        )
+        result = todoist_service.update_comment_for_mcp(comment_id="1", content="Updated")
 
         assert result["success"] is True
         assert "comment" in result
@@ -880,9 +843,7 @@ class TestTodoistService:
         """Test MCP wrapper error handling for comments"""
         mock_todoist_api.add_comment.side_effect = Exception("Comment failed")
 
-        result = todoist_service.create_comment_for_mcp(
-            content="Test", task_id="task123"
-        )
+        result = todoist_service.create_comment_for_mcp(content="Test", task_id="task123")
 
         assert "error" in result
 
@@ -897,9 +858,7 @@ class TestTodoistService:
 
     def test_get_completed_tasks_error(self, todoist_service, mock_todoist_api):
         """Test get completed tasks error handling"""
-        mock_todoist_api.get_completed_tasks_by_completion_date.side_effect = Exception(
-            "API Error"
-        )
+        mock_todoist_api.get_completed_tasks_by_completion_date.side_effect = Exception("API Error")
 
         with pytest.raises(Exception, match="API Error"):
             todoist_service.get_completed_tasks()
@@ -1047,9 +1006,7 @@ class TestTodoistService:
         """Test MCP wrapper for creating section with error"""
         mock_todoist_api.add_section.side_effect = Exception("Create failed")
 
-        result = todoist_service.create_section_for_mcp(
-            name="Test", project_id="proj123"
-        )
+        result = todoist_service.create_section_for_mcp(name="Test", project_id="proj123")
 
         assert "error" in result
 
@@ -1097,9 +1054,7 @@ class TestTodoistService:
         """Test MCP wrapper for renaming shared label with error"""
         mock_todoist_api.rename_shared_label.side_effect = Exception("Rename failed")
 
-        result = todoist_service.rename_shared_label_for_mcp(
-            old_name="old", new_name="new"
-        )
+        result = todoist_service.rename_shared_label_for_mcp(old_name="old", new_name="new")
 
         assert "error" in result
 

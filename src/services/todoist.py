@@ -1,20 +1,36 @@
 """Todoist API service implementation"""
 
-import os
+import contextlib
 import logging
-from datetime import datetime, date, timedelta
-from typing import Dict, List, Optional, Any
-from zoneinfo import ZoneInfo
-from todoist_api_python.api import TodoistAPI
-from todoist_api_python.models import Task, Project, Section, Label, Comment
-from typing import TYPE_CHECKING
+import os
+from datetime import date, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
-from .cache import RedisCache, cache_aside, CacheConfig, CacheTTL
+from todoist_api_python.api import TodoistAPI
+from todoist_api_python.models import Comment, Label, Project, Section, Task
+from zoneinfo import ZoneInfo
+
+from .cache import CacheConfig, CacheTTL, RedisCache, cache_aside
+from .todoist_constants import (
+    VALID_COLORS,
+    VALID_DURATION_UNITS,
+    VALID_PRIORITIES,
+    VALID_VIEW_STYLES,
+)
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
 
 logger = logging.getLogger(__name__)
+
+# Re-export constants for backwards compatibility
+__all__ = [
+    "VALID_COLORS",
+    "VALID_DURATION_UNITS",
+    "VALID_PRIORITIES",
+    "VALID_VIEW_STYLES",
+    "TodoistService",
+]
 
 
 class TodoistService:
@@ -22,9 +38,9 @@ class TodoistService:
 
     def __init__(
         self,
-        api_token: Optional[str] = None,
-        mcp: Optional["FastMCP"] = None,
-        cache: Optional[RedisCache] = None,
+        api_token: str | None = None,
+        mcp: "FastMCP | None" = None,
+        cache: RedisCache | None = None,
     ):
         """
         Initialize Todoist service
@@ -59,7 +75,9 @@ class TodoistService:
             self.timezone = ZoneInfo("US/Eastern")
 
         logger.info(
-            f"Todoist service initialized (cache: {'enabled' if self.cache else 'disabled'}, timezone: {self.timezone_str})"
+            "Todoist service initialized (cache: %s, timezone: %s)",
+            "enabled" if self.cache else "disabled",
+            self.timezone_str,
         )
 
         # Register MCP tools and prompts if MCP server is provided
@@ -69,7 +87,7 @@ class TodoistService:
 
     # ========== VALIDATION HELPERS ==========
 
-    def _validate_priority(self, priority: Optional[int]) -> Optional[int]:
+    def _validate_priority(self, priority: int | None) -> int | None:
         """Validate priority value and return as integer"""
         if priority is not None:
             # Convert to int if string
@@ -77,34 +95,39 @@ class TodoistService:
                 priority_int = int(priority)
             except (ValueError, TypeError):
                 raise ValueError(
-                    f"Invalid priority value: {priority}. Priority must be an integer between 1-4.\n"
-                    "Use `get_todoist_priorities` tool to see all available priority levels."
-                )
+                    f"Invalid priority value: {priority}. "
+                    "Priority must be an integer between 1-4.\n"
+                    "Use `get_todoist_priorities` tool to see all "
+                    "available priority levels."
+                ) from None
 
-            if priority_int not in [1, 2, 3, 4]:
+            if priority_int not in VALID_PRIORITIES:
                 raise ValueError(
-                    f"Invalid priority value: {priority_int}. Priority must be between 1-4, where:\n"
+                    f"Invalid priority value: {priority_int}. "
+                    "Priority must be between 1-4, where:\n"
                     "  • 4 = Urgent/P1 (red) - Highest priority\n"
                     "  • 3 = High/P2 (orange)\n"
                     "  • 2 = Medium/P3 (blue)\n"
                     "  • 1 = Normal/P4 (gray) - Default priority\n"
                     "Note: In Todoist, higher numbers mean higher priority.\n"
-                    "Use `get_todoist_priorities` tool to see all available priority levels."
+                    "Use `get_todoist_priorities` tool to see all "
+                    "available priority levels."
                 )
             return priority_int
         return None
 
-    def _validate_duration_unit(self, duration_unit: Optional[str]) -> None:
+    def _validate_duration_unit(self, duration_unit: str | None) -> None:
         """Validate duration unit"""
-        if duration_unit is not None and duration_unit not in ["minute", "day"]:
+        if duration_unit is not None and duration_unit not in VALID_DURATION_UNITS:
             raise ValueError(
-                f"Invalid duration_unit: '{duration_unit}'. Duration unit must be either 'minute' or 'day'.\n"
+                f"Invalid duration_unit: '{duration_unit}'. "
+                "Duration unit must be either 'minute' or 'day'.\n"
                 "Examples:\n"
                 "  • duration=30, duration_unit='minute' for a 30-minute task\n"
                 "  • duration=2, duration_unit='day' for a 2-day task"
             )
 
-    def _validate_project_id(self, project_id: Optional[str]) -> None:
+    def _validate_project_id(self, project_id: str | None) -> None:
         """Validate project ID exists"""
         if project_id is not None:
             try:
@@ -112,14 +135,15 @@ class TodoistService:
                 self.api.get_project(project_id)
             except Exception as e:
                 raise ValueError(
-                    f"Invalid project_id: '{project_id}'. This project does not exist or is not accessible.\n"
+                    f"Invalid project_id: '{project_id}'. "
+                    "This project does not exist or is not accessible.\n"
                     "To find valid project IDs:\n"
-                    "  • Use `get_todoist_projects` tool to list all available projects\n"
+                    "  • Use `get_todoist_projects` to list available projects\n"
                     "  • Check if the project might be archived\n"
-                    f"Original error: {str(e)}"
-                )
+                    f"Original error: {e!s}"
+                ) from e
 
-    def _validate_section_id(self, section_id: Optional[str]) -> None:
+    def _validate_section_id(self, section_id: str | None) -> None:
         """Validate section ID exists"""
         if section_id is not None:
             try:
@@ -127,88 +151,70 @@ class TodoistService:
                 self.api.get_section(section_id)
             except Exception as e:
                 raise ValueError(
-                    f"Invalid section_id: '{section_id}'. This section does not exist or is not accessible.\n"
+                    f"Invalid section_id: '{section_id}'. "
+                    "This section does not exist or is not accessible.\n"
                     "To find valid section IDs:\n"
-                    "  • Use `get_sections` with the project_id parameter to list sections in a project\n"
+                    "  • Use `get_sections` with project_id to list sections\n"
                     "  • Ensure the section belongs to the correct project\n"
-                    f"Original error: {str(e)}"
-                )
+                    f"Original error: {e!s}"
+                ) from e
 
-    def _validate_label_names(self, labels: Optional[List[str]]) -> None:
+    def _validate_label_names(self, labels: list[str] | None) -> None:
         """Validate label names exist"""
         if labels is not None:
             try:
                 existing_labels = self.get_labels()
                 existing_names = [label["name"] for label in existing_labels]
                 invalid_labels = [
-                    label_name
-                    for label_name in labels
-                    if label_name not in existing_names
+                    label_name for label_name in labels if label_name not in existing_names
                 ]
                 if invalid_labels:
                     raise ValueError(
-                        f"Invalid label(s): {', '.join(invalid_labels)}. These labels do not exist.\n"
+                        f"Invalid label(s): {', '.join(invalid_labels)}. "
+                        "These labels do not exist.\n"
                         f"Available labels: {', '.join(existing_names)}\n"
                         "To create new labels:\n"
-                        "  • Use `create_todoist_label` tool to create missing labels first\n"
-                        "  • Or use `get_todoist_labels` tool to see all available labels"
+                        "  • Use `create_todoist_label` to create missing labels\n"
+                        "  • Or use `get_todoist_labels` to see available labels"
                     )
             except ValueError:
                 raise
             except Exception as e:
-                logger.warning(f"Could not validate labels: {e}")
+                logger.warning("Could not validate labels: %s", e)
 
-    def _validate_due_date_format(self, due_date: Optional[str]) -> None:
+    def _validate_due_date_format(self, due_date: str | None) -> None:
         """Validate due date format"""
         if due_date is not None:
             try:
                 datetime.strptime(due_date, "%Y-%m-%d")
             except ValueError:
                 raise ValueError(
-                    f"Invalid due_date format: '{due_date}'. Date must be in YYYY-MM-DD format.\n"
+                    f"Invalid due_date format: '{due_date}'. "
+                    "Date must be in YYYY-MM-DD format.\n"
                     "Examples:\n"
                     "  • '2024-12-31' for December 31, 2024\n"
                     "  • '2024-01-15' for January 15, 2024\n"
                     "Alternatively:\n"
-                    "  • Use due_string with natural language like 'tomorrow', 'next Friday', 'in 2 weeks'"
-                )
+                    "  • Use due_string with natural language like "
+                    "'tomorrow', 'next Friday', 'in 2 weeks'"
+                ) from None
 
-    def _validate_color(self, color: Optional[str]) -> None:
+    def _validate_color(self, color: str | None) -> None:
         """Validate color value"""
-        valid_colors = [
-            "berry_red",
-            "red",
-            "orange",
-            "yellow",
-            "olive_green",
-            "lime_green",
-            "green",
-            "mint_green",
-            "teal",
-            "sky_blue",
-            "light_blue",
-            "blue",
-            "grape",
-            "violet",
-            "lavender",
-            "magenta",
-            "salmon",
-            "charcoal",
-            "grey",
-            "taupe",
-        ]
-        if color is not None and color not in valid_colors:
+        if color is not None and color not in VALID_COLORS:
             raise ValueError(
                 f"Invalid color: '{color}'.\n"
-                f"Available colors: {', '.join(valid_colors)}\n"
-                "Use `get_todoist_colors` tool to see all available colors with their descriptions."
+                f"Available colors: {', '.join(sorted(VALID_COLORS))}\n"
+                "Use `get_todoist_colors` tool to see all available "
+                "colors with their descriptions."
             )
 
-    def _validate_view_style(self, view_style: Optional[str]) -> None:
+    def _validate_view_style(self, view_style: str | None) -> None:
         """Validate view style"""
-        if view_style is not None and view_style not in ["list", "board"]:
+        if view_style is not None and view_style not in VALID_VIEW_STYLES:
             raise ValueError(
-                f"Invalid view_style: '{view_style}'. View style must be either 'list' or 'board'.\n"
+                f"Invalid view_style: '{view_style}'. "
+                "View style must be either 'list' or 'board'.\n"
                 "  • 'list' - Traditional list view\n"
                 "  • 'board' - Kanban board view"
             )
@@ -216,13 +222,16 @@ class TodoistService:
     # ========== TASK OPERATIONS ==========
 
     def get_tasks_with_filter(
-        self, filter_query: str, lang: Optional[str] = None, limit: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
+        self, filter_query: str, lang: str | None = None, limit: int | None = None
+    ) -> list[dict[str, Any]]:
         """
-        Get tasks using Todoist's native filter API which properly handles timezone-aware queries
+        Get tasks using Todoist's native filter API.
+
+        Properly handles timezone-aware queries.
 
         Args:
-            filter_query: Todoist filter query (e.g., "today", "tomorrow", "next 7 days")
+            filter_query: Todoist filter query
+                (e.g., "today", "tomorrow", "next 7 days")
             lang: Language for filter parsing (optional)
             limit: Maximum number of results (optional, max 200)
 
@@ -230,10 +239,9 @@ class TodoistService:
             List of task dictionaries matching the filter
         """
         try:
-            # Use the native filter_tasks API which handles timezone conversions properly
-            task_iterator = self.api.filter_tasks(
-                query=filter_query, lang=lang, limit=limit
-            )
+            # Use the native filter_tasks API which handles timezone
+            # conversions properly
+            task_iterator = self.api.filter_tasks(query=filter_query, lang=lang, limit=limit)
 
             # Flatten the iterator results
             all_tasks = []
@@ -245,15 +253,13 @@ class TodoistService:
                     all_tasks.append(self._task_to_dict(task_batch))
 
             return all_tasks
-        except Exception as e:
-            logger.error(f"Failed to get tasks with filter '{filter_query}': {e}")
+        except Exception:
+            logger.exception("Failed to get tasks with filter '%s'", filter_query)
             # Fall back to manual filtering if filter API fails
-            logger.warning(
-                f"Falling back to manual filtering for query: {filter_query}"
-            )
+            logger.warning("Falling back to manual filtering for query: %s", filter_query)
             return self._manual_filter_tasks(filter_query)
 
-    def _manual_filter_tasks(self, filter_query: str) -> List[Dict[str, Any]]:
+    def _manual_filter_tasks(self, filter_query: str) -> list[dict[str, Any]]:
         """
         Manual fallback for filtering tasks when filter API is not available
         """
@@ -263,46 +269,41 @@ class TodoistService:
         # Simple filter implementations
         if filter_query == "today":
             return [t for t in tasks if self._is_due_on_date(t, today)]
-        elif filter_query == "tomorrow":
+        if filter_query == "tomorrow":
             tomorrow = today + timedelta(days=1)
             return [t for t in tasks if self._is_due_on_date(t, tomorrow)]
-        elif filter_query == "overdue":
+        if filter_query == "overdue":
             return [t for t in tasks if self._is_overdue(t, today)]
-        elif filter_query == "next 7 days" or filter_query == "7 days":
+        if filter_query == "next 7 days" or filter_query == "7 days":
             week_end = today + timedelta(days=6)
             return [t for t in tasks if self._is_due_between(t, today, week_end)]
-        elif filter_query == "no date":
+        if filter_query == "no date":
             return [t for t in tasks if not t.get("due")]
-        else:
-            logger.warning(
-                f"Unsupported manual filter: {filter_query}, returning all tasks"
-            )
-            return tasks
+        logger.warning("Unsupported manual filter: %s, returning all tasks", filter_query)
+        return tasks
 
-    def _is_due_on_date(self, task: Dict[str, Any], target_date: date) -> bool:
+    def _is_due_on_date(self, task: dict[str, Any], target_date: date) -> bool:
         """Check if task is due on specific date"""
         if not task.get("due"):
             return False
         task_date = self._extract_task_date(task)
         return task_date == target_date if task_date else False
 
-    def _is_overdue(self, task: Dict[str, Any], today: date) -> bool:
+    def _is_overdue(self, task: dict[str, Any], today: date) -> bool:
         """Check if task is overdue"""
         if not task.get("due"):
             return False
         task_date = self._extract_task_date(task)
         return task_date < today if task_date else False
 
-    def _is_due_between(
-        self, task: Dict[str, Any], start_date: date, end_date: date
-    ) -> bool:
+    def _is_due_between(self, task: dict[str, Any], start_date: date, end_date: date) -> bool:
         """Check if task is due between two dates"""
         if not task.get("due"):
             return False
         task_date = self._extract_task_date(task)
         return start_date <= task_date <= end_date if task_date else False
 
-    def _extract_task_date(self, task: Dict[str, Any]) -> Optional[date]:
+    def _extract_task_date(self, task: dict[str, Any]) -> date | None:
         """Extract date from task's due field, handling timezone conversion"""
         due_info = task.get("due")
         if not due_info:
@@ -313,17 +314,15 @@ class TodoistService:
             datetime_val = due_info["datetime"]
             try:
                 if isinstance(datetime_val, str):
-                    task_dt = datetime.fromisoformat(
-                        datetime_val.replace("Z", "+00:00")
-                    )
+                    task_dt = datetime.fromisoformat(datetime_val.replace("Z", "+00:00"))
                     task_dt = task_dt.astimezone(self.timezone)
                     return task_dt.date()
-                elif isinstance(datetime_val, datetime):
+                if isinstance(datetime_val, datetime):
                     return datetime_val.astimezone(self.timezone).date()
-                elif isinstance(datetime_val, date):
+                if isinstance(datetime_val, date):
                     return datetime_val
             except Exception as e:
-                logger.debug(f"Failed to parse datetime '{datetime_val}': {e}")
+                logger.debug("Failed to parse datetime '%s': %s", datetime_val, e)
 
         # Fall back to date field
         if due_info.get("date"):
@@ -331,34 +330,31 @@ class TodoistService:
             try:
                 if isinstance(date_val, date):
                     return date_val
-                elif isinstance(date_val, datetime):
+                if isinstance(date_val, datetime):
                     return date_val.date()
-                elif isinstance(date_val, str):
+                if isinstance(date_val, str):
                     if "T" in date_val:
-                        task_dt = datetime.fromisoformat(
-                            date_val.replace("Z", "+00:00")
-                        )
+                        task_dt = datetime.fromisoformat(date_val.replace("Z", "+00:00"))
                         task_dt = task_dt.astimezone(self.timezone)
                         return task_dt.date()
-                    else:
-                        return datetime.strptime(date_val, "%Y-%m-%d").date()
+                    return datetime.strptime(date_val, "%Y-%m-%d").date()
             except Exception as e:
-                logger.debug(f"Failed to parse date '{date_val}': {e}")
+                logger.debug("Failed to parse date '%s': %s", date_val, e)
 
         return None
 
     @cache_aside(CacheConfig(ttl=CacheTTL.TODOIST_TASKS, key_prefix="todoist:tasks"))
     def get_tasks(
         self,
-        project_id: Optional[str] = None,
-        section_id: Optional[str] = None,
-        label: Optional[str] = None,
-        filter_str: Optional[str] = None,
-        lang: Optional[str] = None,
-        ids: Optional[List[str]] = None,
-        limit: Optional[int] = None,
+        project_id: str | None = None,
+        section_id: str | None = None,
+        label: str | None = None,
+        filter_str: str | None = None,
+        lang: str | None = None,
+        ids: list[str] | None = None,
+        limit: int | None = None,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Get all active tasks with optional filters
 
@@ -381,7 +377,8 @@ class TodoistService:
             # For now, we'll ignore the filter parameter and get all tasks
             if filter_str:
                 logger.warning(
-                    f"Filter '{filter_str}' not directly supported by API, returning all tasks"
+                    "Filter '%s' not directly supported by API, returning all tasks",
+                    filter_str,
                 )
 
             task_iterator = self.api.get_tasks(
@@ -401,39 +398,39 @@ class TodoistService:
                 all_tasks = all_tasks[offset:]
 
             return all_tasks
-        except Exception as e:
-            logger.error(f"Failed to get tasks: {e}")
+        except Exception:
+            logger.exception("Failed to get tasks")
             raise
 
-    def get_task(self, task_id: str) -> Dict[str, Any]:
+    def get_task(self, task_id: str) -> dict[str, Any]:
         """Get a specific task by ID"""
         try:
             task = self.api.get_task(task_id)
             return self._task_to_dict(task)
-        except Exception as e:
-            logger.error(f"Failed to get task {task_id}: {e}")
+        except Exception:
+            logger.exception("Failed to get task %s", task_id)
             raise
 
     def create_task(
         self,
         content: str,
-        description: Optional[str] = None,
-        project_id: Optional[str] = None,
-        section_id: Optional[str] = None,
-        parent_id: Optional[str] = None,
-        order: Optional[int] = None,
-        labels: Optional[List[str]] = None,
-        priority: Optional[int] = None,
-        due_string: Optional[str] = None,
-        due_date: Optional[str] = None,
-        due_datetime: Optional[str] = None,
-        due_lang: Optional[str] = None,
-        deadline_date: Optional[str] = None,  # NATIVE DEADLINE FIELD
-        deadline_lang: Optional[str] = None,
-        assignee_id: Optional[str] = None,
-        duration: Optional[int] = None,
-        duration_unit: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        description: str | None = None,
+        project_id: str | None = None,
+        section_id: str | None = None,
+        parent_id: str | None = None,
+        order: int | None = None,
+        labels: list[str] | None = None,
+        priority: int | None = None,
+        due_string: str | None = None,
+        due_date: str | None = None,
+        due_datetime: str | None = None,
+        due_lang: str | None = None,
+        deadline_date: str | None = None,  # NATIVE DEADLINE FIELD
+        deadline_lang: str | None = None,
+        assignee_id: str | None = None,
+        duration: int | None = None,
+        duration_unit: str | None = None,
+    ) -> dict[str, Any]:
         """
         Create a new task
 
@@ -467,8 +464,6 @@ class TodoistService:
         self._validate_due_date_format(deadline_date)  # Validate deadline format too
 
         # Convert date strings to date objects for API
-        from datetime import datetime
-
         if due_date is not None:
             due_date_obj = datetime.strptime(due_date, "%Y-%m-%d").date()
         else:
@@ -509,51 +504,50 @@ class TodoistService:
             # Re-raise validation errors with their helpful messages
             raise
         except Exception as e:
-            logger.error(f"Failed to create task: {e}")
+            logger.exception("Failed to create task")
             # Provide helpful error message based on common issues
             if "404" in str(e) or "not found" in str(e).lower():
                 raise ValueError(
-                    f"Failed to create task: Resource not found.\n"
+                    "Failed to create task: Resource not found.\n"
                     "Possible issues:\n"
-                    "  • Project ID might be invalid - use `get_todoist_projects` to verify\n"
-                    "  • Section ID might be invalid - use `get_sections` to verify\n"
+                    "  • Project ID invalid - use `get_todoist_projects`\n"
+                    "  • Section ID invalid - use `get_sections`\n"
                     "  • Parent task ID might be invalid\n"
-                    f"Original error: {str(e)}"
-                )
-            elif "401" in str(e) or "unauthorized" in str(e).lower():
+                    f"Original error: {e!s}"
+                ) from e
+            if "401" in str(e) or "unauthorized" in str(e).lower():
                 raise ValueError(
-                    "Authentication failed. Please check your Todoist API token.\n"
+                    "Authentication failed. Check your Todoist API token.\n"
                     "To fix:\n"
-                    "  • Verify TODOIST_API_TOKEN environment variable is set correctly\n"
-                    "  • Generate a new token at todoist.com/prefs/integrations\n"
-                    f"Original error: {str(e)}"
-                )
-            else:
-                raise ValueError(
-                    f"Failed to create task: {str(e)}\n"
-                    "For help with common issues:\n"
-                    "  • Use `get_todoist_projects` to find valid project IDs\n"
-                    "  • Use `get_todoist_labels` to see available labels\n"
-                    "  • Use `get_todoist_priorities` for priority information"
-                )
+                    "  • Verify TODOIST_API_TOKEN env variable is set\n"
+                    "  • Generate new token at todoist.com/prefs/integrations\n"
+                    f"Original error: {e!s}"
+                ) from e
+            raise ValueError(
+                f"Failed to create task: {e!s}\n"
+                "For help with common issues:\n"
+                "  • Use `get_todoist_projects` to find valid project IDs\n"
+                "  • Use `get_todoist_labels` to see available labels\n"
+                "  • Use `get_todoist_priorities` for priority information"
+            ) from e
 
     def update_task(
         self,
         task_id: str,
-        content: Optional[str] = None,
-        description: Optional[str] = None,
-        labels: Optional[List[str]] = None,
-        priority: Optional[int] = None,
-        due_string: Optional[str] = None,
-        due_date: Optional[str] = None,
-        due_datetime: Optional[str] = None,
-        due_lang: Optional[str] = None,
-        deadline_date: Optional[str] = None,  # NATIVE DEADLINE FIELD
-        deadline_lang: Optional[str] = None,
-        assignee_id: Optional[str] = None,
-        duration: Optional[int] = None,
-        duration_unit: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        content: str | None = None,
+        description: str | None = None,
+        labels: list[str] | None = None,
+        priority: int | None = None,
+        due_string: str | None = None,
+        due_date: str | None = None,
+        due_datetime: str | None = None,
+        due_lang: str | None = None,
+        deadline_date: str | None = None,  # NATIVE DEADLINE FIELD
+        deadline_lang: str | None = None,
+        assignee_id: str | None = None,
+        duration: int | None = None,
+        duration_unit: str | None = None,
+    ) -> dict[str, Any]:
         """
         Update an existing task
 
@@ -572,8 +566,6 @@ class TodoistService:
         self._validate_due_date_format(deadline_date)  # Validate deadline format too
 
         # Convert date strings to date objects for API
-        from datetime import datetime
-
         if due_date is not None:
             due_date_obj = datetime.strptime(due_date, "%Y-%m-%d").date()
         else:
@@ -606,30 +598,29 @@ class TodoistService:
             # Re-raise validation errors with their helpful messages
             raise
         except Exception as e:
-            logger.error(f"Failed to update task {task_id}: {e}")
+            logger.exception("Failed to update task %s", task_id)
             if "404" in str(e) or "not found" in str(e).lower():
                 raise ValueError(
                     f"Failed to update task: Task with ID '{task_id}' not found.\n"
                     "To fix:\n"
                     "  • Use `get_todoist_tasks` to find the correct task ID\n"
                     "  • Verify the task hasn't been deleted\n"
-                    f"Original error: {str(e)}"
-                )
-            else:
-                raise ValueError(
-                    f"Failed to update task: {str(e)}\n"
-                    "For help:\n"
-                    "  • Use `get_todoist_tasks` to verify the task exists\n"
-                    "  • Check parameter formats match the requirements"
-                )
+                    f"Original error: {e!s}"
+                ) from e
+            raise ValueError(
+                f"Failed to update task: {e!s}\n"
+                "For help:\n"
+                "  • Use `get_todoist_tasks` to verify the task exists\n"
+                "  • Check parameter formats match the requirements"
+            ) from e
 
     def close_task(self, task_id: str) -> bool:
         """Mark a task as completed"""
         try:
             # The Todoist API uses 'complete_task()'
             return self.api.complete_task(task_id=task_id)
-        except Exception as e:
-            logger.error(f"Failed to close task {task_id}: {e}")
+        except Exception:
+            logger.exception("Failed to close task %s", task_id)
             raise
 
     def reopen_task(self, task_id: str) -> bool:
@@ -637,25 +628,25 @@ class TodoistService:
         try:
             # The Todoist API uses 'uncomplete_task()'
             return self.api.uncomplete_task(task_id=task_id)
-        except Exception as e:
-            logger.error(f"Failed to reopen task {task_id}: {e}")
+        except Exception:
+            logger.exception("Failed to reopen task %s", task_id)
             raise
 
     def delete_task(self, task_id: str) -> bool:
         """Delete a task permanently"""
         try:
             return self.api.delete_task(task_id)
-        except Exception as e:
-            logger.error(f"Failed to delete task {task_id}: {e}")
+        except Exception:
+            logger.exception("Failed to delete task %s", task_id)
             raise
 
     def move_task(
         self,
         task_id: str,
-        project_id: Optional[str] = None,
-        section_id: Optional[str] = None,
-        parent_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        project_id: str | None = None,
+        section_id: str | None = None,
+        parent_id: str | None = None,
+    ) -> dict[str, Any]:
         """
         Move a task to a different project, section, or parent task.
 
@@ -676,7 +667,8 @@ class TodoistService:
         specified = [t for t in targets if t is not None]
         if len(specified) != 1:
             raise ValueError(
-                "Exactly one of project_id, section_id, or parent_id must be specified.\n"
+                "Exactly one of project_id, section_id, or parent_id "
+                "must be specified.\n"
                 "Examples:\n"
                 "  • Move to project: project_id='123'\n"
                 "  • Move to section: section_id='456'\n"
@@ -705,18 +697,18 @@ class TodoistService:
             return self._task_to_dict(task)
 
         except Exception as e:
-            logger.error(f"Failed to move task {task_id}: {e}")
+            logger.exception("Failed to move task %s", task_id)
             if "404" in str(e) or "not found" in str(e).lower():
                 raise ValueError(
-                    f"Failed to move task: Task or target not found.\n"
+                    "Failed to move task: Task or target not found.\n"
                     "To fix:\n"
                     "  • Use `get_todoist_tasks` to verify the task exists\n"
                     "  • Use `get_todoist_projects` to verify project ID\n"
-                    f"Original error: {str(e)}"
-                )
+                    f"Original error: {e!s}"
+                ) from e
             raise
 
-    def quick_add_task(self, text: str) -> Dict[str, Any]:
+    def quick_add_task(self, text: str) -> dict[str, Any]:
         """
         Create a task using Todoist's Quick Add syntax.
 
@@ -739,19 +731,19 @@ class TodoistService:
                 self.cache.delete_pattern("todoist:tasks:*")
 
             return self._task_to_dict(task)
-        except Exception as e:
-            logger.error(f"Failed to quick add task: {e}")
+        except Exception:
+            logger.exception("Failed to quick add task")
             raise
 
     def get_completed_tasks(
         self,
-        project_id: Optional[str] = None,
-        section_id: Optional[str] = None,
-        item_id: Optional[str] = None,
-        last_seen_id: Optional[str] = None,
+        project_id: str | None = None,
+        section_id: str | None = None,
+        item_id: str | None = None,
+        last_seen_id: str | None = None,
         limit: int = 50,
-        cursor: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
         """
         Get completed tasks by completion date.
 
@@ -780,18 +772,18 @@ class TodoistService:
                 "cursor": getattr(result, "cursor", None),
                 "has_more": getattr(result, "has_more", False),
             }
-        except Exception as e:
-            logger.error(f"Failed to get completed tasks: {e}")
+        except Exception:
+            logger.exception("Failed to get completed tasks")
             raise
 
     def get_completed_tasks_by_due_date(
         self,
         due_date: str,
-        project_id: Optional[str] = None,
-        timezone: Optional[str] = None,
-        cursor: Optional[str] = None,
+        project_id: str | None = None,
+        timezone: str | None = None,
+        cursor: str | None = None,
         limit: int = 50,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get completed tasks that were due on a specific date.
 
@@ -820,16 +812,14 @@ class TodoistService:
                 "cursor": getattr(result, "cursor", None),
                 "has_more": getattr(result, "has_more", False),
             }
-        except Exception as e:
-            logger.error(f"Failed to get completed tasks by due date: {e}")
+        except Exception:
+            logger.exception("Failed to get completed tasks by due date")
             raise
 
     # ========== PROJECT OPERATIONS ==========
 
-    @cache_aside(
-        CacheConfig(ttl=CacheTTL.TODOIST_PROJECTS, key_prefix="todoist:projects")
-    )
-    def get_projects(self) -> List[Dict[str, Any]]:
+    @cache_aside(CacheConfig(ttl=CacheTTL.TODOIST_PROJECTS, key_prefix="todoist:projects"))
+    def get_projects(self) -> list[dict[str, Any]]:
         """Get all projects"""
         try:
             projects_paginator = self.api.get_projects()
@@ -841,27 +831,27 @@ class TodoistService:
                 else:
                     all_projects.append(project_batch)
             return [self._project_to_dict(p) for p in all_projects]
-        except Exception as e:
-            logger.error(f"Failed to get projects: {e}")
+        except Exception:
+            logger.exception("Failed to get projects")
             raise
 
-    def get_project(self, project_id: str) -> Dict[str, Any]:
+    def get_project(self, project_id: str) -> dict[str, Any]:
         """Get a specific project"""
         try:
             project = self.api.get_project(project_id)
             return self._project_to_dict(project)
-        except Exception as e:
-            logger.error(f"Failed to get project {project_id}: {e}")
+        except Exception:
+            logger.exception("Failed to get project %s", project_id)
             raise
 
     def create_project(
         self,
         name: str,
-        parent_id: Optional[str] = None,
-        color: Optional[str] = None,
+        parent_id: str | None = None,
+        color: str | None = None,
         is_favorite: bool = False,
         view_style: str = "list",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Create a new project
 
@@ -889,18 +879,18 @@ class TodoistService:
                 view_style=view_style,
             )
             return self._project_to_dict(project)
-        except Exception as e:
-            logger.error(f"Failed to create project: {e}")
+        except Exception:
+            logger.exception("Failed to create project")
             raise
 
     def update_project(
         self,
         project_id: str,
-        name: Optional[str] = None,
-        color: Optional[str] = None,
-        is_favorite: Optional[bool] = None,
-        view_style: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        name: str | None = None,
+        color: str | None = None,
+        is_favorite: bool | None = None,
+        view_style: str | None = None,
+    ) -> dict[str, Any]:
         """Update an existing project"""
         # Validate parameters
         self._validate_color(color)
@@ -920,8 +910,8 @@ class TodoistService:
                 self.cache.delete_pattern("todoist:projects:*")
 
             return self._project_to_dict(project)
-        except Exception as e:
-            logger.error(f"Failed to update project {project_id}: {e}")
+        except Exception:
+            logger.exception("Failed to update project %s", project_id)
             raise
 
     def delete_project(self, project_id: str) -> bool:
@@ -936,8 +926,8 @@ class TodoistService:
                 self.cache.delete_pattern("todoist:sections:*")
 
             return result
-        except Exception as e:
-            logger.error(f"Failed to delete project {project_id}: {e}")
+        except Exception:
+            logger.exception("Failed to delete project %s", project_id)
             raise
 
     def archive_project(self, project_id: str) -> bool:
@@ -950,8 +940,8 @@ class TodoistService:
                 self.cache.delete_pattern("todoist:projects:*")
 
             return result
-        except Exception as e:
-            logger.error(f"Failed to archive project {project_id}: {e}")
+        except Exception:
+            logger.exception("Failed to archive project %s", project_id)
             raise
 
     def unarchive_project(self, project_id: str) -> bool:
@@ -964,11 +954,11 @@ class TodoistService:
                 self.cache.delete_pattern("todoist:projects:*")
 
             return result
-        except Exception as e:
-            logger.error(f"Failed to unarchive project {project_id}: {e}")
+        except Exception:
+            logger.exception("Failed to unarchive project %s", project_id)
             raise
 
-    def get_collaborators(self, project_id: str) -> List[Dict[str, Any]]:
+    def get_collaborators(self, project_id: str) -> list[dict[str, Any]]:
         """Get collaborators for a shared project"""
         try:
             collaborators = self.api.get_collaborators(project_id=project_id)
@@ -980,16 +970,14 @@ class TodoistService:
                 }
                 for c in collaborators
             ]
-        except Exception as e:
-            logger.error(f"Failed to get collaborators for project {project_id}: {e}")
+        except Exception:
+            logger.exception("Failed to get collaborators for project %s", project_id)
             raise
 
     # ========== SECTION OPERATIONS ==========
 
-    @cache_aside(
-        CacheConfig(ttl=CacheTTL.TODOIST_SECTIONS, key_prefix="todoist:sections")
-    )
-    def get_sections(self, project_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    @cache_aside(CacheConfig(ttl=CacheTTL.TODOIST_SECTIONS, key_prefix="todoist:sections"))
+    def get_sections(self, project_id: str | None = None) -> list[dict[str, Any]]:
         """Get sections, optionally filtered by project"""
         try:
             sections_paginator = self.api.get_sections(project_id=project_id)
@@ -1001,38 +989,36 @@ class TodoistService:
                 else:
                     all_sections.append(section_batch)
             return [self._section_to_dict(s) for s in all_sections]
-        except Exception as e:
-            logger.error(f"Failed to get sections: {e}")
+        except Exception:
+            logger.exception("Failed to get sections")
             raise
 
-    def get_section(self, section_id: str) -> Dict[str, Any]:
+    def get_section(self, section_id: str) -> dict[str, Any]:
         """Get a specific section"""
         try:
             section = self.api.get_section(section_id)
             return self._section_to_dict(section)
-        except Exception as e:
-            logger.error(f"Failed to get section {section_id}: {e}")
+        except Exception:
+            logger.exception("Failed to get section %s", section_id)
             raise
 
     def create_section(
-        self, name: str, project_id: str, order: Optional[int] = None
-    ) -> Dict[str, Any]:
+        self, name: str, project_id: str, order: int | None = None
+    ) -> dict[str, Any]:
         """Create a new section in a project"""
         try:
-            section = self.api.add_section(
-                name=name, project_id=project_id, order=order
-            )
+            section = self.api.add_section(name=name, project_id=project_id, order=order)
 
             # Invalidate section cache after creation
             if self.cache:
                 self.cache.delete_pattern("todoist:sections:*")
 
             return self._section_to_dict(section)
-        except Exception as e:
-            logger.error(f"Failed to create section: {e}")
+        except Exception:
+            logger.exception("Failed to create section")
             raise
 
-    def update_section(self, section_id: str, name: str) -> Dict[str, Any]:
+    def update_section(self, section_id: str, name: str) -> dict[str, Any]:
         """Update a section name"""
         try:
             section = self.api.update_section(section_id=section_id, name=name)
@@ -1042,8 +1028,8 @@ class TodoistService:
                 self.cache.delete_pattern("todoist:sections:*")
 
             return self._section_to_dict(section)
-        except Exception as e:
-            logger.error(f"Failed to update section {section_id}: {e}")
+        except Exception:
+            logger.exception("Failed to update section %s", section_id)
             raise
 
     def delete_section(self, section_id: str) -> bool:
@@ -1057,80 +1043,79 @@ class TodoistService:
                 self.cache.delete_pattern("todoist:tasks:*")
 
             return result
-        except Exception as e:
-            logger.error(f"Failed to delete section {section_id}: {e}")
+        except Exception:
+            logger.exception("Failed to delete section %s", section_id)
             raise
 
     # ========== LABEL OPERATIONS ==========
 
     @cache_aside(CacheConfig(ttl=CacheTTL.TODOIST_LABELS, key_prefix="todoist:labels"))
-    def get_labels(self) -> List[Dict[str, Any]]:
+    def get_labels(self) -> list[dict[str, Any]]:
         """Get all labels"""
         try:
             labels_paginator = self.api.get_labels()
             # The paginator returns lists of labels, we need to flatten it
-            all_labels: List[Label] = []
+            all_labels: list[Label] = []
             for label_batch in labels_paginator:
                 if isinstance(label_batch, list):
                     all_labels.extend(label_batch)
                 else:
                     all_labels.append(label_batch)
             return [self._label_to_dict(label) for label in all_labels]
-        except Exception as e:
-            logger.error(f"Failed to get labels: {e}")
+        except Exception:
+            logger.exception("Failed to get labels")
             raise
 
-    def get_label(self, label_id: str) -> Dict[str, Any]:
+    def get_label(self, label_id: str) -> dict[str, Any]:
         """Get a specific label"""
         try:
             label = self.api.get_label(label_id)
             return self._label_to_dict(label)
-        except Exception as e:
-            logger.error(f"Failed to get label {label_id}: {e}")
+        except Exception:
+            logger.exception("Failed to get label %s", label_id)
             raise
 
     def create_label(
         self,
         name: str,
-        order: Optional[int] = None,
-        color: Optional[str] = None,
+        order: int | None = None,
+        color: str | None = None,
         is_favorite: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Create a new label"""
         # Validate parameters
         self._validate_color(color)
 
         try:
-            label = self.api.add_label(
-                name=name, order=order, color=color, is_favorite=is_favorite
-            )
+            # Note: order parameter removed as it's not supported by current API version
+            label = self.api.add_label(name=name, color=color, is_favorite=is_favorite)
 
             # Invalidate label cache after creation
             if self.cache:
                 self.cache.delete_pattern("todoist:labels:*")
 
             return self._label_to_dict(label)
-        except Exception as e:
-            logger.error(f"Failed to create label: {e}")
+        except Exception:
+            logger.exception("Failed to create label")
             raise
 
     def update_label(
         self,
         label_id: str,
-        name: Optional[str] = None,
-        order: Optional[int] = None,
-        color: Optional[str] = None,
-        is_favorite: Optional[bool] = None,
-    ) -> Dict[str, Any]:
+        name: str | None = None,
+        order: int | None = None,
+        color: str | None = None,
+        is_favorite: bool | None = None,
+    ) -> dict[str, Any]:
         """Update a label"""
         # Validate parameters
         self._validate_color(color)
 
         try:
+            # Note: order parameter removed as it's not supported by current API version
             label = self.api.update_label(
                 label_id=label_id,
                 name=name,
-                order=order,
                 color=color,
                 is_favorite=is_favorite,
             )
@@ -1140,8 +1125,8 @@ class TodoistService:
                 self.cache.delete_pattern("todoist:labels:*")
 
             return self._label_to_dict(label)
-        except Exception as e:
-            logger.error(f"Failed to update label {label_id}: {e}")
+        except Exception:
+            logger.exception("Failed to update label %s", label_id)
             raise
 
     def delete_label(self, label_id: str) -> bool:
@@ -1155,16 +1140,16 @@ class TodoistService:
                 self.cache.delete_pattern("todoist:tasks:*")
 
             return result
-        except Exception as e:
-            logger.error(f"Failed to delete label {label_id}: {e}")
+        except Exception:
+            logger.exception("Failed to delete label %s", label_id)
             raise
 
-    def get_shared_labels(self) -> List[str]:
+    def get_shared_labels(self) -> list[str]:
         """Get all shared labels (labels used across shared projects)"""
         try:
             return list(self.api.get_shared_labels())
-        except Exception as e:
-            logger.error(f"Failed to get shared labels: {e}")
+        except Exception:
+            logger.exception("Failed to get shared labels")
             raise
 
     def rename_shared_label(self, old_name: str, new_name: str) -> bool:
@@ -1178,8 +1163,8 @@ class TodoistService:
                 self.cache.delete_pattern("todoist:tasks:*")
 
             return result
-        except Exception as e:
-            logger.error(f"Failed to rename shared label '{old_name}': {e}")
+        except Exception:
+            logger.exception("Failed to rename shared label '%s'", old_name)
             raise
 
     def remove_shared_label(self, name: str) -> bool:
@@ -1193,20 +1178,18 @@ class TodoistService:
                 self.cache.delete_pattern("todoist:tasks:*")
 
             return result
-        except Exception as e:
-            logger.error(f"Failed to remove shared label '{name}': {e}")
+        except Exception:
+            logger.exception("Failed to remove shared label '%s'", name)
             raise
 
     # ========== COMMENT OPERATIONS ==========
 
     def get_comments(
-        self, project_id: Optional[str] = None, task_id: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        self, project_id: str | None = None, task_id: str | None = None
+    ) -> list[dict[str, Any]]:
         """Get comments for a project or task"""
         try:
-            comments_paginator = self.api.get_comments(
-                project_id=project_id, task_id=task_id
-            )
+            comments_paginator = self.api.get_comments(project_id=project_id, task_id=task_id)
             # The paginator returns lists of comments, we need to flatten it
             all_comments = []
             for comment_batch in comments_paginator:
@@ -1215,26 +1198,26 @@ class TodoistService:
                 else:
                     all_comments.append(comment_batch)
             return [self._comment_to_dict(c) for c in all_comments]
-        except Exception as e:
-            logger.error(f"Failed to get comments: {e}")
+        except Exception:
+            logger.exception("Failed to get comments")
             raise
 
-    def get_comment(self, comment_id: str) -> Dict[str, Any]:
+    def get_comment(self, comment_id: str) -> dict[str, Any]:
         """Get a specific comment"""
         try:
             comment = self.api.get_comment(comment_id)
             return self._comment_to_dict(comment)
-        except Exception as e:
-            logger.error(f"Failed to get comment {comment_id}: {e}")
+        except Exception:
+            logger.exception("Failed to get comment %s", comment_id)
             raise
 
     def create_comment(
         self,
         content: str,
-        task_id: Optional[str] = None,
-        project_id: Optional[str] = None,
-        attachment: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        task_id: str | None = None,
+        project_id: str | None = None,
+        attachment: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Add a comment to a task or project"""
         try:
             comment = self.api.add_comment(
@@ -1244,30 +1227,30 @@ class TodoistService:
                 attachment=attachment,
             )
             return self._comment_to_dict(comment)
-        except Exception as e:
-            logger.error(f"Failed to create comment: {e}")
+        except Exception:
+            logger.exception("Failed to create comment")
             raise
 
-    def update_comment(self, comment_id: str, content: str) -> Dict[str, Any]:
+    def update_comment(self, comment_id: str, content: str) -> dict[str, Any]:
         """Update a comment"""
         try:
             comment = self.api.update_comment(comment_id=comment_id, content=content)
             return self._comment_to_dict(comment)
-        except Exception as e:
-            logger.error(f"Failed to update comment {comment_id}: {e}")
+        except Exception:
+            logger.exception("Failed to update comment %s", comment_id)
             raise
 
     def delete_comment(self, comment_id: str) -> bool:
         """Delete a comment"""
         try:
             return self.api.delete_comment(comment_id)
-        except Exception as e:
-            logger.error(f"Failed to delete comment {comment_id}: {e}")
+        except Exception:
+            logger.exception("Failed to delete comment %s", comment_id)
             raise
 
     # ========== HELPER METHODS ==========
 
-    def _extract_deadline_from_description(self, description: str) -> Optional[str]:
+    def _extract_deadline_from_description(self, description: str) -> str | None:
         """
         Extract deadline date from description field.
         Looks for pattern: [DEADLINE: YYYY-MM-DD]
@@ -1300,7 +1283,7 @@ class TodoistService:
             return f"{cleaned}\n{deadline_tag}"
         return deadline_tag
 
-    def _task_to_dict(self, task: Task) -> Dict[str, Any]:
+    def _task_to_dict(self, task: Task) -> dict[str, Any]:
         """Convert Task object to dictionary with native deadline support"""
         description = getattr(task, "description", "")
         result = {
@@ -1359,7 +1342,7 @@ class TodoistService:
 
         return result
 
-    def _project_to_dict(self, project: Project) -> Dict[str, Any]:
+    def _project_to_dict(self, project: Project) -> dict[str, Any]:
         """Convert Project object to dictionary"""
         return {
             "id": project.id,
@@ -1379,7 +1362,7 @@ class TodoistService:
             "folder_id": getattr(project, "folder_id", None),
         }
 
-    def _section_to_dict(self, section: Section) -> Dict[str, Any]:
+    def _section_to_dict(self, section: Section) -> dict[str, Any]:
         """Convert Section object to dictionary"""
         return {
             "id": section.id,
@@ -1388,7 +1371,7 @@ class TodoistService:
             "order": section.order,
         }
 
-    def _label_to_dict(self, label: Label) -> Dict[str, Any]:
+    def _label_to_dict(self, label: Label) -> dict[str, Any]:
         """Convert Label object to dictionary"""
         return {
             "id": label.id,
@@ -1398,7 +1381,7 @@ class TodoistService:
             "is_favorite": label.is_favorite,
         }
 
-    def _comment_to_dict(self, comment: Comment) -> Dict[str, Any]:
+    def _comment_to_dict(self, comment: Comment) -> dict[str, Any]:
         """Convert Comment object to dictionary"""
         result = {
             "id": comment.id,
@@ -1421,28 +1404,29 @@ class TodoistService:
         return result
 
     # ========== MCP WRAPPER METHODS ==========
-    # These methods handle type conversion for MCP tools which pass all parameters as strings
+    # These methods handle type conversion for MCP tools
+    # which pass all parameters as strings
 
     def create_task_for_mcp(
         self,
         content: str,
-        description: Optional[str] = None,
-        deadline: Optional[str] = None,  # Maps to deadline_date
-        deadline_lang: Optional[str] = None,
-        project_id: Optional[str] = None,
-        section_id: Optional[str] = None,
-        parent_id: Optional[str] = None,
-        order: Optional[str] = None,
-        labels: Optional[List[str]] = None,
-        priority: Optional[str] = None,  # MCP passes as string
-        due_string: Optional[str] = None,
-        due_date: Optional[str] = None,
-        due_datetime: Optional[str] = None,
-        due_lang: Optional[str] = None,
-        assignee_id: Optional[str] = None,
-        duration: Optional[str] = None,  # MCP passes as string
-        duration_unit: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        description: str | None = None,
+        deadline: str | None = None,  # Maps to deadline_date
+        deadline_lang: str | None = None,
+        project_id: str | None = None,
+        section_id: str | None = None,
+        parent_id: str | None = None,
+        order: str | None = None,
+        labels: list[str] | None = None,
+        priority: str | None = None,  # MCP passes as string
+        due_string: str | None = None,
+        due_date: str | None = None,
+        due_datetime: str | None = None,
+        due_lang: str | None = None,
+        assignee_id: str | None = None,
+        duration: str | None = None,  # MCP passes as string
+        duration_unit: str | None = None,
+    ) -> dict[str, Any]:
         """MCP wrapper for create_task that handles type conversion"""
         # Convert string parameters to appropriate types
         if order is not None:
@@ -1452,16 +1436,12 @@ class TodoistService:
                 order = None
 
         if priority is not None:
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 priority = int(priority)
-            except (ValueError, TypeError):
-                pass  # Let validation handle the error
 
         if duration is not None:
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 duration = int(duration)
-            except (ValueError, TypeError):
-                duration = None
 
         return self.create_task(
             content=content,
@@ -1486,33 +1466,29 @@ class TodoistService:
     def update_task_for_mcp(
         self,
         task_id: str,
-        content: Optional[str] = None,
-        description: Optional[str] = None,
-        deadline: Optional[str] = None,  # Maps to deadline_date
-        deadline_lang: Optional[str] = None,
-        labels: Optional[List[str]] = None,
-        priority: Optional[str] = None,  # MCP passes as string
-        due_string: Optional[str] = None,
-        due_date: Optional[str] = None,
-        due_datetime: Optional[str] = None,
-        due_lang: Optional[str] = None,
-        assignee_id: Optional[str] = None,
-        duration: Optional[str] = None,  # MCP passes as string
-        duration_unit: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        content: str | None = None,
+        description: str | None = None,
+        deadline: str | None = None,  # Maps to deadline_date
+        deadline_lang: str | None = None,
+        labels: list[str] | None = None,
+        priority: str | None = None,  # MCP passes as string
+        due_string: str | None = None,
+        due_date: str | None = None,
+        due_datetime: str | None = None,
+        due_lang: str | None = None,
+        assignee_id: str | None = None,
+        duration: str | None = None,  # MCP passes as string
+        duration_unit: str | None = None,
+    ) -> dict[str, Any]:
         """MCP wrapper for update_task that handles type conversion"""
         # Convert string parameters to appropriate types
         if priority is not None:
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 priority = int(priority)
-            except (ValueError, TypeError):
-                pass  # Let validation handle the error
 
         if duration is not None:
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 duration = int(duration)
-            except (ValueError, TypeError):
-                duration = None
 
         return self.update_task(
             task_id=task_id,
@@ -1538,13 +1514,6 @@ class TodoistService:
         # Commented tools: todoist_get_tasks, todoist_get_projects, todoist_get_labels
 
         # Task tools
-        # Commented out - use resources instead for read-only data
-        # self.mcp.tool(
-        #     name="todoist_get_tasks",
-        #     description="Retrieve tasks from Todoist with optional filtering. Parameters: project_id (filter by project), label_id (filter by label), filter_string (Todoist filter syntax), max_items (limit results, default 100). Returns: Array of task objects with id, content, due date, priority, labels, and project info. Use to: Get active tasks, check due dates, find specific tasks, or list tasks by project/label.",
-        #     annotations={"title": "Get Todoist Tasks"}
-        # )(self.get_tasks_for_mcp)
-
         self.mcp.tool(
             name="create_todoist_task",
             description="""Create a new task in Todoist.
@@ -1787,13 +1756,6 @@ Created task object with parsed properties
         )(self.get_completed_tasks_by_due_date)
 
         # Project tools
-        # Commented out - use resources instead for read-only data
-        # self.mcp.tool(
-        #     name="todoist_get_projects",
-        #     description="Retrieve all projects from Todoist account. No parameters required. Returns: Array of project objects with id, name, color, parent_id, order, and other properties. Use to: See available projects for task organization and management.",
-        #     annotations={"title": "Get Todoist Projects"}
-        # )(self.get_projects_for_mcp)
-
         self.mcp.tool(
             name="create_todoist_project",
             description="""Create a new project or sub-project in Todoist.
@@ -1941,13 +1903,6 @@ List of collaborators with:
         )(self.get_collaborators)
 
         # Label tools
-        # Commented out - use resources instead for read-only data
-        # self.mcp.tool(
-        #     name="todoist_get_labels",
-        #     description="Retrieve all labels from Todoist account. No parameters required. Returns: Array of label objects with id, name, color, order, and favorite status. Use to: See available labels for task categorization and filtering.",
-        #     annotations={"title": "Get Todoist Labels"}
-        # )(self.get_labels_for_mcp)
-
         self.mcp.tool(
             name="create_todoist_label",
             description="""Create a new label in Todoist.
@@ -2064,23 +2019,23 @@ Success/error status
         # Section tools
         self.mcp.tool(
             name="get_todoist_sections",
-            description=f"""Get sections, optionally filtered by project (cached for {CacheTTL.TODOIST_SECTIONS//60} minutes).
-
-## Parameters
-• project_id: Filter by project (optional)
-  - Call `get_todoist_projects` to see available project IDs
-
-## Returns
-List of sections with:
-• id: Section ID
-• name: Section name
-• project_id: Parent project
-• order: Sort order
-
-## Use Cases
-• See available sections for task organization
-• Get section IDs for moving tasks
-• Understand project structure""",
+            description=(
+                "Get sections, optionally filtered by project "
+                f"(cached for {CacheTTL.TODOIST_SECTIONS // 60} minutes).\n\n"
+                "## Parameters\n"
+                "• project_id: Filter by project (optional)\n"
+                "  - Call `get_todoist_projects` to see available project IDs\n\n"
+                "## Returns\n"
+                "List of sections with:\n"
+                "• id: Section ID\n"
+                "• name: Section name\n"
+                "• project_id: Parent project\n"
+                "• order: Sort order\n\n"
+                "## Use Cases\n"
+                "• See available sections for task organization\n"
+                "• Get section IDs for moving tasks\n"
+                "• Understand project structure"
+            ),
             title="Get Todoist Sections",
             annotations={"title": "Get Todoist Sections"},
         )(self.get_sections_for_mcp)
@@ -2690,11 +2645,10 @@ Since Todoist only has one 'due' field, we use:
             if labels:
                 prompt_parts.append(f"- Labels: {labels}")
 
+            prompt_parts.append("\nUse the create_todoist_task tool to create this task.")
             prompt_parts.append(
-                "\nUse the create_todoist_task tool to create this task."
-            )
-            prompt_parts.append(
-                "If a project name is provided, first use get_todoist_projects to find the project ID."
+                "If a project name is provided, first use "
+                "get_todoist_projects to find the project ID."
             )
             prompt_parts.append(
                 "Confirm the task was created successfully and show the task details."
@@ -2745,59 +2699,58 @@ Provide a weekly summary including:
 - High priority tasks count
 - Any overdue tasks that need immediate attention
 
-If today has many tasks, suggest which ones to prioritize first based on priority and deadlines."""
+If today has many tasks, suggest which ones to prioritize first
+based on priority and deadlines."""
 
     # MCP Tool Wrappers
     def get_tasks_for_mcp(
         self,
-        project_id: Optional[str] = None,
-        label: Optional[str] = None,
-        filter: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        project_id: str | None = None,
+        label: str | None = None,
+        filter: str | None = None,
+    ) -> dict[str, Any]:
         """MCP tool wrapper for get_tasks"""
         try:
-            tasks = self.get_tasks(
-                project_id=project_id, label=label, filter_str=filter
-            )
+            tasks = self.get_tasks(project_id=project_id, label=label, filter_str=filter)
             return {"tasks": tasks, "count": len(tasks)}
         except Exception as e:
-            logger.error(f"Error getting tasks: {e}")
+            logger.exception("Error getting tasks")
             return {"error": str(e)}
 
-    def close_task_for_mcp(self, task_id: str) -> Dict[str, Any]:
+    def close_task_for_mcp(self, task_id: str) -> dict[str, Any]:
         """MCP tool wrapper for close_task"""
         try:
             result = self.close_task(task_id)
             return {"success": result, "message": f"Task {task_id} completed"}
         except Exception as e:
-            logger.error(f"Error closing task: {e}")
+            logger.exception("Error closing task")
             return {"error": str(e)}
 
-    def reopen_task_for_mcp(self, task_id: str) -> Dict[str, Any]:
+    def reopen_task_for_mcp(self, task_id: str) -> dict[str, Any]:
         """MCP tool wrapper for reopen_task"""
         try:
             result = self.reopen_task(task_id)
             return {"success": result, "message": f"Task {task_id} reopened"}
         except Exception as e:
-            logger.error(f"Error reopening task: {e}")
+            logger.exception("Error reopening task")
             return {"error": str(e)}
 
-    def delete_task_for_mcp(self, task_id: str) -> Dict[str, Any]:
+    def delete_task_for_mcp(self, task_id: str) -> dict[str, Any]:
         """MCP tool wrapper for delete_task"""
         try:
             result = self.delete_task(task_id)
             return {"success": result, "message": f"Task {task_id} deleted"}
         except Exception as e:
-            logger.error(f"Error deleting task: {e}")
+            logger.exception("Error deleting task")
             return {"error": str(e)}
 
     def move_task_for_mcp(
         self,
         task_id: str,
-        project_id: Optional[str] = None,
-        section_id: Optional[str] = None,
-        parent_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        project_id: str | None = None,
+        section_id: str | None = None,
+        parent_id: str | None = None,
+    ) -> dict[str, Any]:
         """MCP tool wrapper for move_task"""
         try:
             task = self.move_task(
@@ -2814,102 +2767,102 @@ If today has many tasks, suggest which ones to prioritize first based on priorit
         except ValueError as e:
             return {"error": str(e)}
         except Exception as e:
-            logger.error(f"Error moving task: {e}")
+            logger.exception("Error moving task")
             return {"error": str(e)}
 
-    def get_projects_for_mcp(self) -> Dict[str, Any]:
+    def get_projects_for_mcp(self) -> dict[str, Any]:
         """MCP tool wrapper for get_projects"""
         try:
             projects = self.get_projects()
             return {"projects": projects, "count": len(projects)}
         except Exception as e:
-            logger.error(f"Error getting projects: {e}")
+            logger.exception("Error getting projects")
             return {"error": str(e)}
 
-    def get_labels_for_mcp(self) -> Dict[str, Any]:
+    def get_labels_for_mcp(self) -> dict[str, Any]:
         """MCP tool wrapper for get_labels"""
         try:
             labels = self.get_labels()
             return {"labels": labels, "count": len(labels)}
         except Exception as e:
-            logger.error(f"Error getting labels: {e}")
+            logger.exception("Error getting labels")
             return {"error": str(e)}
 
     # Project MCP Wrappers
-    def delete_project_for_mcp(self, project_id: str) -> Dict[str, Any]:
+    def delete_project_for_mcp(self, project_id: str) -> dict[str, Any]:
         """MCP tool wrapper for delete_project"""
         try:
             result = self.delete_project(project_id)
             return {"success": result, "message": f"Project {project_id} deleted"}
         except Exception as e:
-            logger.error(f"Error deleting project: {e}")
+            logger.exception("Error deleting project")
             return {"error": str(e)}
 
-    def archive_project_for_mcp(self, project_id: str) -> Dict[str, Any]:
+    def archive_project_for_mcp(self, project_id: str) -> dict[str, Any]:
         """MCP tool wrapper for archive_project"""
         try:
             result = self.archive_project(project_id)
             return {"success": result, "message": f"Project {project_id} archived"}
         except Exception as e:
-            logger.error(f"Error archiving project: {e}")
+            logger.exception("Error archiving project")
             return {"error": str(e)}
 
-    def unarchive_project_for_mcp(self, project_id: str) -> Dict[str, Any]:
+    def unarchive_project_for_mcp(self, project_id: str) -> dict[str, Any]:
         """MCP tool wrapper for unarchive_project"""
         try:
             result = self.unarchive_project(project_id)
             return {"success": result, "message": f"Project {project_id} unarchived"}
         except Exception as e:
-            logger.error(f"Error unarchiving project: {e}")
+            logger.exception("Error unarchiving project")
             return {"error": str(e)}
 
     # Section MCP Wrappers
-    def get_sections_for_mcp(self, project_id: Optional[str] = None) -> Dict[str, Any]:
+    def get_sections_for_mcp(self, project_id: str | None = None) -> dict[str, Any]:
         """MCP tool wrapper for get_sections"""
         try:
             sections = self.get_sections(project_id=project_id)
             return {"sections": sections, "count": len(sections)}
         except Exception as e:
-            logger.error(f"Error getting sections: {e}")
+            logger.exception("Error getting sections")
             return {"error": str(e)}
 
     def create_section_for_mcp(
-        self, name: str, project_id: str, order: Optional[int] = None
-    ) -> Dict[str, Any]:
+        self, name: str, project_id: str, order: int | None = None
+    ) -> dict[str, Any]:
         """MCP tool wrapper for create_section"""
         try:
             section = self.create_section(name=name, project_id=project_id, order=order)
             return {"success": True, "section": section}
         except Exception as e:
-            logger.error(f"Error creating section: {e}")
+            logger.exception("Error creating section")
             return {"error": str(e)}
 
-    def update_section_for_mcp(self, section_id: str, name: str) -> Dict[str, Any]:
+    def update_section_for_mcp(self, section_id: str, name: str) -> dict[str, Any]:
         """MCP tool wrapper for update_section"""
         try:
             section = self.update_section(section_id=section_id, name=name)
             return {"success": True, "section": section}
         except Exception as e:
-            logger.error(f"Error updating section: {e}")
+            logger.exception("Error updating section")
             return {"error": str(e)}
 
-    def delete_section_for_mcp(self, section_id: str) -> Dict[str, Any]:
+    def delete_section_for_mcp(self, section_id: str) -> dict[str, Any]:
         """MCP tool wrapper for delete_section"""
         try:
             result = self.delete_section(section_id)
             return {"success": result, "message": f"Section {section_id} deleted"}
         except Exception as e:
-            logger.error(f"Error deleting section: {e}")
+            logger.exception("Error deleting section")
             return {"error": str(e)}
 
     # Label MCP Wrappers
     def update_label_for_mcp(
         self,
         label_id: str,
-        name: Optional[str] = None,
-        color: Optional[str] = None,
-        is_favorite: Optional[bool] = None,
-    ) -> Dict[str, Any]:
+        name: str | None = None,
+        color: str | None = None,
+        is_favorite: bool | None = None,
+    ) -> dict[str, Any]:
         """MCP tool wrapper for update_label"""
         try:
             label = self.update_label(
@@ -2917,30 +2870,28 @@ If today has many tasks, suggest which ones to prioritize first based on priorit
             )
             return {"success": True, "label": label}
         except Exception as e:
-            logger.error(f"Error updating label: {e}")
+            logger.exception("Error updating label")
             return {"error": str(e)}
 
-    def delete_label_for_mcp(self, label_id: str) -> Dict[str, Any]:
+    def delete_label_for_mcp(self, label_id: str) -> dict[str, Any]:
         """MCP tool wrapper for delete_label"""
         try:
             result = self.delete_label(label_id)
             return {"success": result, "message": f"Label {label_id} deleted"}
         except Exception as e:
-            logger.error(f"Error deleting label: {e}")
+            logger.exception("Error deleting label")
             return {"error": str(e)}
 
-    def get_shared_labels_for_mcp(self) -> Dict[str, Any]:
+    def get_shared_labels_for_mcp(self) -> dict[str, Any]:
         """MCP tool wrapper for get_shared_labels"""
         try:
             labels = self.get_shared_labels()
             return {"shared_labels": labels, "count": len(labels)}
         except Exception as e:
-            logger.error(f"Error getting shared labels: {e}")
+            logger.exception("Error getting shared labels")
             return {"error": str(e)}
 
-    def rename_shared_label_for_mcp(
-        self, old_name: str, new_name: str
-    ) -> Dict[str, Any]:
+    def rename_shared_label_for_mcp(self, old_name: str, new_name: str) -> dict[str, Any]:
         """MCP tool wrapper for rename_shared_label"""
         try:
             result = self.rename_shared_label(old_name=old_name, new_name=new_name)
@@ -2949,74 +2900,72 @@ If today has many tasks, suggest which ones to prioritize first based on priorit
                 "message": f"Shared label '{old_name}' renamed to '{new_name}'",
             }
         except Exception as e:
-            logger.error(f"Error renaming shared label: {e}")
+            logger.exception("Error renaming shared label")
             return {"error": str(e)}
 
-    def remove_shared_label_for_mcp(self, name: str) -> Dict[str, Any]:
+    def remove_shared_label_for_mcp(self, name: str) -> dict[str, Any]:
         """MCP tool wrapper for remove_shared_label"""
         try:
             result = self.remove_shared_label(name=name)
             return {"success": result, "message": f"Shared label '{name}' removed"}
         except Exception as e:
-            logger.error(f"Error removing shared label: {e}")
+            logger.exception("Error removing shared label")
             return {"error": str(e)}
 
     # Comment MCP Wrappers
     def get_comments_for_mcp(
-        self, task_id: Optional[str] = None, project_id: Optional[str] = None
-    ) -> Dict[str, Any]:
+        self, task_id: str | None = None, project_id: str | None = None
+    ) -> dict[str, Any]:
         """MCP tool wrapper for get_comments"""
         try:
             comments = self.get_comments(task_id=task_id, project_id=project_id)
             return {"comments": comments, "count": len(comments)}
         except Exception as e:
-            logger.error(f"Error getting comments: {e}")
+            logger.exception("Error getting comments")
             return {"error": str(e)}
 
     def create_comment_for_mcp(
         self,
         content: str,
-        task_id: Optional[str] = None,
-        project_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        task_id: str | None = None,
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
         """MCP tool wrapper for create_comment"""
         try:
-            comment = self.create_comment(
-                content=content, task_id=task_id, project_id=project_id
-            )
+            comment = self.create_comment(content=content, task_id=task_id, project_id=project_id)
             return {"success": True, "comment": comment}
         except Exception as e:
-            logger.error(f"Error creating comment: {e}")
+            logger.exception("Error creating comment")
             return {"error": str(e)}
 
-    def update_comment_for_mcp(self, comment_id: str, content: str) -> Dict[str, Any]:
+    def update_comment_for_mcp(self, comment_id: str, content: str) -> dict[str, Any]:
         """MCP tool wrapper for update_comment"""
         try:
             comment = self.update_comment(comment_id=comment_id, content=content)
             return {"success": True, "comment": comment}
         except Exception as e:
-            logger.error(f"Error updating comment: {e}")
+            logger.exception("Error updating comment")
             return {"error": str(e)}
 
-    def delete_comment_for_mcp(self, comment_id: str) -> Dict[str, Any]:
+    def delete_comment_for_mcp(self, comment_id: str) -> dict[str, Any]:
         """MCP tool wrapper for delete_comment"""
         try:
             result = self.delete_comment(comment_id)
             return {"success": result, "message": f"Comment {comment_id} deleted"}
         except Exception as e:
-            logger.error(f"Error deleting comment: {e}")
+            logger.exception("Error deleting comment")
             return {"error": str(e)}
 
     # Resource Methods
-    def get_projects_resource(self) -> List[Dict[str, Any]]:
+    def get_projects_resource(self) -> list[dict[str, Any]]:
         """Resource providing all Todoist projects"""
         return self.get_projects()
 
-    def get_labels_resource(self) -> List[Dict[str, Any]]:
+    def get_labels_resource(self) -> list[dict[str, Any]]:
         """Resource providing all Todoist labels"""
         return self.get_labels()
 
-    def get_today_tasks_resource(self) -> Dict[str, Any]:
+    def get_today_tasks_resource(self) -> dict[str, Any]:
         """Resource providing today's tasks using native Todoist filtering"""
         try:
             # Use native filter API for proper timezone handling
@@ -3029,10 +2978,10 @@ If today has many tasks, suggest which ones to prioritize first based on priorit
                 "tasks_count": len(tasks),
             }
         except Exception as e:
-            logger.error(f"Error getting today's tasks: {e}")
+            logger.exception("Error getting today's tasks")
             return {"error": str(e), "tasks": [], "tasks_count": 0}
 
-    def get_overdue_tasks_resource(self) -> Dict[str, Any]:
+    def get_overdue_tasks_resource(self) -> dict[str, Any]:
         """Resource providing overdue tasks using native Todoist filtering"""
         try:
             # Use native filter API for proper timezone handling
@@ -3045,48 +2994,46 @@ If today has many tasks, suggest which ones to prioritize first based on priorit
                 "tasks_count": len(tasks),
             }
         except Exception as e:
-            logger.error(f"Error getting overdue tasks: {e}")
+            logger.exception("Error getting overdue tasks")
             return {"error": str(e), "tasks": [], "tasks_count": 0}
 
-    def get_project_tasks_resource(self, project_id: str) -> Dict[str, Any]:
+    def get_project_tasks_resource(self, project_id: str) -> dict[str, Any]:
         """Resource providing tasks for a specific project"""
         try:
             tasks = self.get_tasks(project_id=project_id)
             return {"project_id": project_id, "tasks": tasks, "tasks_count": len(tasks)}
         except Exception as e:
-            logger.error(f"Error getting tasks for project {project_id}: {e}")
+            logger.exception("Error getting tasks for project %s", project_id)
             return {"error": str(e), "project_id": project_id}
 
-    def get_label_tasks_resource(self, label_name: str) -> Dict[str, Any]:
+    def get_label_tasks_resource(self, label_name: str) -> dict[str, Any]:
         """Resource providing tasks with a specific label"""
         try:
             tasks = self.get_tasks(label=label_name)
             return {"label": label_name, "tasks": tasks, "tasks_count": len(tasks)}
         except Exception as e:
-            logger.error(f"Error getting tasks for label {label_name}: {e}")
+            logger.exception("Error getting tasks for label %s", label_name)
             return {"error": str(e), "label": label_name}
 
-    def get_priority_tasks_resource(self, priority: str) -> Dict[str, Any]:
+    def get_priority_tasks_resource(self, priority: str) -> dict[str, Any]:
         """Resource providing tasks with a specific priority"""
         try:
             priority_int = int(priority)
-            if priority_int not in [1, 2, 3, 4]:
+            if priority_int not in VALID_PRIORITIES:
                 return {"error": "Priority must be 1, 2, 3, or 4", "priority": priority}
 
             tasks = self.get_tasks()
-            priority_tasks = [
-                task for task in tasks if task.get("priority") == priority_int
-            ]
+            priority_tasks = [task for task in tasks if task.get("priority") == priority_int]
             return {
                 "priority": priority_int,
                 "tasks": priority_tasks,
                 "tasks_count": len(priority_tasks),
             }
         except Exception as e:
-            logger.error(f"Error getting tasks for priority {priority}: {e}")
+            logger.exception("Error getting tasks for priority %s", priority)
             return {"error": str(e), "priority": priority}
 
-    def get_filtered_tasks_resource(self, filter_string: str) -> Dict[str, Any]:
+    def get_filtered_tasks_resource(self, filter_string: str) -> dict[str, Any]:
         """Resource providing tasks matching a Todoist filter using native API"""
         try:
             # Use native filter API for proper timezone handling
@@ -3098,10 +3045,10 @@ If today has many tasks, suggest which ones to prioritize first based on priorit
                 "tasks_count": len(tasks),
             }
         except Exception as e:
-            logger.error(f"Error getting tasks with filter '{filter_string}': {e}")
+            logger.exception("Error getting tasks with filter '%s'", filter_string)
             return {"error": str(e), "filter": filter_string}
 
-    def get_project_details_resource(self, project_id: str) -> Dict[str, Any]:
+    def get_project_details_resource(self, project_id: str) -> dict[str, Any]:
         """Resource providing project details with task count"""
         try:
             project = self.get_project(project_id)
@@ -3116,17 +3063,15 @@ If today has many tasks, suggest which ones to prioritize first based on priorit
                 "total_tasks_count": len(tasks),
             }
         except Exception as e:
-            logger.error(f"Error getting project details for {project_id}: {e}")
+            logger.exception("Error getting project details for %s", project_id)
             return {"error": str(e), "project_id": project_id}
 
-    def get_inbox_tasks_resource(self) -> Dict[str, Any]:
+    def get_inbox_tasks_resource(self) -> dict[str, Any]:
         """Resource providing inbox tasks (no project assigned)"""
         try:
             # Get inbox project (usually has is_inbox_project=True)
             projects = self.get_projects()
-            inbox_project = next(
-                (p for p in projects if p.get("is_inbox_project")), None
-            )
+            inbox_project = next((p for p in projects if p.get("is_inbox_project")), None)
 
             if inbox_project:
                 tasks = self.get_tasks(project_id=inbox_project["id"])
@@ -3137,10 +3082,10 @@ If today has many tasks, suggest which ones to prioritize first based on priorit
 
             return {"inbox": True, "tasks": tasks, "tasks_count": len(tasks)}
         except Exception as e:
-            logger.error(f"Error getting inbox tasks: {e}")
+            logger.exception("Error getting inbox tasks")
             return {"error": str(e), "inbox": True}
 
-    def get_priorities_resource(self) -> Dict[str, Any]:
+    def get_priorities_resource(self) -> dict[str, Any]:
         """Resource providing Todoist priority levels"""
         return {
             "priorities": [
@@ -3170,10 +3115,10 @@ If today has many tasks, suggest which ones to prioritize first based on priorit
                 },
             ],
             "default": 1,
-            "note": "Use priority 4 for urgent, 3 for high, 2 for medium, 1 for low/normal",
+            "note": ("Use priority 4 for urgent, 3 for high, " "2 for medium, 1 for low/normal"),
         }
 
-    def get_colors_resource(self) -> Dict[str, Any]:
+    def get_colors_resource(self) -> dict[str, Any]:
         """Resource providing available Todoist colors"""
         return {
             "colors": [
@@ -3198,10 +3143,12 @@ If today has many tasks, suggest which ones to prioritize first based on priorit
                 {"id": 48, "name": "grey", "hex": "#b8b8b8"},
                 {"id": 49, "name": "taupe", "hex": "#ccac93"},
             ],
-            "usage": "Use color name (e.g., 'red') or ID (e.g., 31) when creating projects or labels",
+            "usage": (
+                "Use color name (e.g., 'red') or ID (e.g., 31) " "when creating projects or labels"
+            ),
         }
 
-    def get_common_filters_resource(self) -> Dict[str, Any]:
+    def get_common_filters_resource(self) -> dict[str, Any]:
         """Resource providing common Todoist filter strings"""
         return {
             "filters": [
@@ -3236,10 +3183,13 @@ If today has many tasks, suggest which ones to prioritize first based on priorit
                 },
                 {"filter": "assigned to: me", "description": "Tasks assigned to you"},
             ],
-            "note": "Combine filters with & (AND), | (OR), and ! (NOT) operators. Time-based filters use YOUR configured timezone.",
+            "note": (
+                "Combine filters with & (AND), | (OR), and ! (NOT) operators. "
+                "Time-based filters use YOUR configured timezone."
+            ),
         }
 
-    def get_all_due_today_resource(self) -> Dict[str, Any]:
+    def get_all_due_today_resource(self) -> dict[str, Any]:
         """Get all tasks due today plus overdue tasks using native filtering"""
         try:
             # Use combined filter for today and overdue
@@ -3268,10 +3218,10 @@ If today has many tasks, suggest which ones to prioritize first based on priorit
                 "total_count": len(due_today) + len(overdue),
             }
         except Exception as e:
-            logger.error(f"Error getting all due today: {e}")
+            logger.exception("Error getting all due today")
             return {"error": str(e), "due_today": [], "overdue": []}
 
-    def get_week_tasks_resource(self) -> Dict[str, Any]:
+    def get_week_tasks_resource(self) -> dict[str, Any]:
         """Get all tasks for the next 7 days using native filtering"""
         try:
             # Use native filter for next 7 days
@@ -3292,10 +3242,10 @@ If today has many tasks, suggest which ones to prioritize first based on priorit
                 "tasks_count": len(tasks),
             }
         except Exception as e:
-            logger.error(f"Error getting week tasks: {e}")
+            logger.exception("Error getting week tasks")
             return {"error": str(e), "tasks": [], "tasks_count": 0}
 
-    def get_high_priority_tasks_resource(self) -> Dict[str, Any]:
+    def get_high_priority_tasks_resource(self) -> dict[str, Any]:
         """Get all high priority tasks (P1 and P2)"""
         tasks = self.get_tasks()
 
@@ -3310,7 +3260,7 @@ If today has many tasks, suggest which ones to prioritize first based on priorit
             "total_high_priority": len(urgent_tasks) + len(high_tasks),
         }
 
-    def get_no_date_tasks_resource(self) -> Dict[str, Any]:
+    def get_no_date_tasks_resource(self) -> dict[str, Any]:
         """Get all tasks without a due date"""
         tasks = self.get_tasks()
         no_date_tasks = [t for t in tasks if not t.get("due")]
@@ -3330,16 +3280,14 @@ If today has many tasks, suggest which ones to prioritize first based on priorit
             "project_count": len(by_project),
         }
 
-    def get_tasks_with_deadlines_resource(self) -> Dict[str, Any]:
+    def get_tasks_with_deadlines_resource(self) -> dict[str, Any]:
         """Get all tasks that have deadlines specified in descriptions"""
         tasks = self.get_tasks()
         today = datetime.now(self.timezone).date()
         tasks_with_deadlines = []
 
         for task in tasks:
-            deadline = self._extract_deadline_from_description(
-                task.get("description", "")
-            )
+            deadline = self._extract_deadline_from_description(task.get("description", ""))
             if deadline:
                 try:
                     deadline_date = datetime.strptime(deadline, "%Y-%m-%d").date()
@@ -3363,7 +3311,7 @@ If today has many tasks, suggest which ones to prioritize first based on priorit
                 except ValueError:
                     # Invalid date format in deadline
                     logger.warning(
-                        f"Invalid deadline format in task {task.get('id')}: {deadline}"
+                        "Invalid deadline format in task %s: %s", task.get("id"), deadline
                     )
 
         # Sort by deadline date
@@ -3383,7 +3331,7 @@ If today has many tasks, suggest which ones to prioritize first based on priorit
             "timezone": self.timezone_str,
         }
 
-    def get_task_stats_resource(self) -> Dict[str, Any]:
+    def get_task_stats_resource(self) -> dict[str, Any]:
         """Get statistics about tasks"""
         tasks = self.get_tasks()
         today = datetime.now(self.timezone).date()
