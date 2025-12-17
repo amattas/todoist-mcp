@@ -682,18 +682,23 @@ class TodoistService:
             self._validate_section_id(section_id)
 
         try:
-            # Use SDK's native move_task method
-            task = self.api.move_task(
+            # Use SDK's native move_task method (returns bool)
+            success = self.api.move_task(
                 task_id=task_id,
                 project_id=project_id,
                 section_id=section_id,
                 parent_id=parent_id,
             )
 
+            if not success:
+                raise ValueError(f"Failed to move task {task_id}")
+
             # Invalidate task cache after move
             if self.cache:
                 self.cache.delete_pattern("todoist:tasks:*")
 
+            # Fetch the updated task to return
+            task = self.api.get_task(task_id)
             return self._task_to_dict(task)
 
         except Exception as e:
