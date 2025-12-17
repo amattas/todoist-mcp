@@ -1,0 +1,15 @@
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "G", "TRY", "PIE"]
+ignore = [
+    "E501",   # Line too long - handled by formatter with 100 char limit
+    "TRY003", # Avoid specifying long messages outside exception class
+    "TRY300", # Consider moving return to else block - too strict
+    "TRY301", # Abstract raise to inner function - too strict
+    "TRY400", # Use logging.exception instead of logging.error (we use exception already)
+]
+
+[tool.black]
+line-length = 100

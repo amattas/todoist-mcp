@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from tests.conftest import MockTodoistTask, MockTodoistDue
+from tests.conftest import MockTodoistDue, MockTodoistTask
 
 
 class MockTodoistDueCustom:
@@ -37,9 +37,7 @@ class TestWeekTasks:
         # Create tasks with different dates
         tasks = [
             # Task due today (start of rolling week)
-            MockTodoistTask(
-                id="1", content="Today task", due=MockTodoistDue(date=start_of_week)
-            ),
+            MockTodoistTask(id="1", content="Today task", due=MockTodoistDue(date=start_of_week)),
             # Task due in 2 days (mid-week)
             MockTodoistTask(
                 id="2",
@@ -135,9 +133,7 @@ class TestWeekTasks:
         task_ids = [t["id"] for t in result["tasks"]]
         assert all(id in task_ids for id in ["1", "2", "3", "4"])
 
-    def test_week_tasks_with_timezone_conversion(
-        self, todoist_service, mock_todoist_api
-    ):
+    def test_week_tasks_with_timezone_conversion(self, todoist_service, mock_todoist_api):
         """Test that datetime values are correctly converted to service timezone"""
         # Set service timezone to US/Eastern
         todoist_service.timezone = ZoneInfo("US/Eastern")
@@ -176,9 +172,7 @@ class TestWeekTasks:
 
         tasks = [
             # Valid task
-            MockTodoistTask(
-                id="1", content="Valid task", due=MockTodoistDue(date=start_of_week)
-            ),
+            MockTodoistTask(id="1", content="Valid task", due=MockTodoistDue(date=start_of_week)),
             # Task with malformed date string
             MockTodoistTask(
                 id="2",
@@ -221,9 +215,7 @@ class TestWeekTasks:
                 content="Thursday task",
                 due=MockTodoistDue(date=start_of_week + timedelta(days=3)),
             ),
-            MockTodoistTask(
-                id="1", content="Monday task", due=MockTodoistDue(date=start_of_week)
-            ),
+            MockTodoistTask(id="1", content="Monday task", due=MockTodoistDue(date=start_of_week)),
             MockTodoistTask(
                 id="2",
                 content="Tuesday task",
@@ -304,9 +296,7 @@ class TestWeekTasks:
             MockTodoistTask(
                 id="2",
                 content="Date in datetime field",
-                due=MockTodoistDueCustom(
-                    datetime_val=start_of_week + timedelta(days=2)
-                ),
+                due=MockTodoistDueCustom(datetime_val=start_of_week + timedelta(days=2)),
             ),
         ]
 

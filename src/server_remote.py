@@ -5,22 +5,27 @@ Supports dual-factor path-based authentication
 Designed for Azure Container Apps and other cloud platforms with SSL termination
 """
 
+import asyncio
+import hashlib
+import logging
 import os
 import sys
-import logging
-import hashlib
-import asyncio
+
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv(".env.local")
 load_dotenv(".env")
 
+
+def _env_bool(key: str, default: bool = False) -> bool:
+    """Parse boolean value from environment variable."""
+    return os.getenv(key, str(default)).lower() in ("true", "1", "yes")
+
+
 # Configure logging
 logging.basicConfig(
-    level=(
-        logging.DEBUG if os.getenv("DEBUG", "false").lower() == "true" else logging.INFO
-    ),
+    level=logging.DEBUG if _env_bool("DEBUG") else logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
@@ -33,28 +38,28 @@ if api_key:
     # Use dual-factor path-based authentication if API key is set
     logger.info("MCP_API_KEY is set - using dual-factor path-based authentication")
 
-    from fastapi import FastAPI, Request, HTTPException
+    import uvicorn
+    from fastapi import FastAPI, HTTPException, Request
     from fastapi.responses import Response
     from starlette.middleware.base import BaseHTTPMiddleware
-    import uvicorn
-    from .server import mcp, initialize_services
+
+    from .server import initialize_services, mcp
 
     # Get configuration
     port = int(os.getenv("PORT", "8080"))
-    # Binding to all interfaces is required for container orchestration; enforce via HOST env var.
+    # Binding to all interfaces is required for container orchestration;
+    # enforce via HOST env var.
     host = os.getenv("HOST", "0.0.0.0")  # nosec B104
 
     # Validate API key format (prevent path traversal attacks)
     if not api_key.replace("-", "").replace("_", "").isalnum():
         logger.error(
-            "API key contains invalid characters. Use only alphanumeric, dash, and underscore."
+            "API key contains invalid characters. " "Use only alphanumeric, dash, and underscore."
         )
         sys.exit(1)
 
     if len(api_key) < 16:
-        logger.warning(
-            "API key is too short. Consider using a longer key for better security."
-        )
+        logger.warning("API key is too short. Consider using a longer key for better security.")
 
     # Calculate hash of API key with optional salt for additional security layer
     if md5_salt:
@@ -66,9 +71,7 @@ if api_key:
 
     # Use SHA-256 to avoid weak-hash usage
     api_key_hash = hashlib.sha256(hash_input.encode()).hexdigest()
-    logger.info(
-        f"API key hash calculated: {api_key_hash[:8]}... (showing first 8 chars)"
-    )
+    logger.info("API key hash calculated: %s... (showing first 8 chars)", api_key_hash[:8])
 
     # Flag to track if services are initialized
     _services_initialized = False
@@ -104,9 +107,7 @@ if api_key:
             response.headers["X-Frame-Options"] = "DENY"
             response.headers["X-XSS-Protection"] = "1; mode=block"
             response.headers["Referrer-Policy"] = "no-referrer"
-            response.headers["Cache-Control"] = (
-                "no-store, no-cache, must-revalidate, private"
-            )
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
             response.headers["Content-Security-Policy"] = "default-src 'none'"
 
             # Remove server identification headers if they exist
@@ -152,18 +153,18 @@ if api_key:
         modified_request = StarletteRequest(scope, request.receive)
 
         # Call the MCP app
-        return await mcp_app(
-            modified_request.scope, modified_request.receive, request._send
-        )
+        return await mcp_app(modified_request.scope, modified_request.receive, request._send)
 
     # Add a custom 404 handler with anti-brute-force delay
     @app.exception_handler(404)
     async def not_found_handler(request: Request, exc: HTTPException):
-        # Add 30-second delay for failed authentication attempts to prevent brute forcing
+        # Add 30-second delay for failed auth attempts to prevent brute forcing
         # Only delay for /app/ paths that look like authentication attempts
         if request.url.path.startswith("/app/") and request.url.path != "/app/health":
             logger.warning(
-                f"Invalid authentication path attempted: {request.url.path} from {request.client.host if request.client else 'unknown'}"
+                "Invalid authentication path attempted: %s from %s",
+                request.url.path,
+                request.client.host if request.client else "unknown",
             )
             await asyncio.sleep(30)
 
@@ -175,17 +176,19 @@ if api_key:
         # Check configuration
         if not os.getenv("TODOIST_API_TOKEN"):
             logger.warning(
-                "Todoist API token not configured. Set TODOIST_API_TOKEN in .env.local or .env"
+                "Todoist API token not configured. " "Set TODOIST_API_TOKEN in .env.local or .env"
             )
 
         # Run HTTP server with authentication
+        logger.info("Starting Todoist MCP remote server with dual-factor authentication")
         logger.info(
-            "Starting Todoist MCP remote server with dual-factor authentication"
+            "MCP endpoint: http://%s:%s/app/%s/%s/mcp",
+            host,
+            port,
+            "[REDACTED]",
+            "[REDACTED]",
         )
-        logger.info(
-            f"MCP endpoint: http://{host}:{port}/app/{api_key}/{api_key_hash}/mcp"
-        )
-        logger.info(f"Health check: http://{host}:{port}/app/health")
+        logger.info("Health check: http://%s:%s/app/health", host, port)
         logger.warning("Keep your API key secret and use HTTPS in production!")
         logger.info("Use scripts/verify_auth.py to calculate the correct endpoint URL")
 
@@ -207,18 +210,19 @@ else:
     logger.warning("MCP_API_KEY not set - running in UNAUTHENTICATED mode")
     logger.warning("This is not recommended for production use!")
 
-    from .server import mcp, initialize_services
+    from .server import initialize_services, mcp
 
     if __name__ == "__main__":
         # Get configuration
         port = int(os.getenv("PORT", "8080"))
-        # Binding to all interfaces is required for container orchestration; enforce via HOST env var.
+        # Binding to all interfaces is required for container orchestration;
+        # enforce via HOST env var.
         host = os.getenv("HOST", "0.0.0.0")  # nosec B104
 
         # Check configuration
         if not os.getenv("TODOIST_API_TOKEN"):
             logger.warning(
-                "Todoist API token not configured. Set TODOIST_API_TOKEN in .env.local or .env"
+                "Todoist API token not configured. " "Set TODOIST_API_TOKEN in .env.local or .env"
             )
 
         # Initialize services before starting the server
@@ -228,10 +232,8 @@ else:
 
         # Run HTTP server without authentication
         logger.info("Starting Todoist MCP remote server (UNAUTHENTICATED)")
-        logger.info(f"MCP endpoint: http://{host}:{port}/mcp")
-        logger.info(
-            "Note: Set MCP_API_KEY environment variable to enable authentication"
-        )
+        logger.info("MCP endpoint: http://%s:%s/mcp", host, port)
+        logger.info("Note: Set MCP_API_KEY environment variable to enable authentication")
 
         # Start the server with HTTP transport
         mcp.run(transport="http", host=host, port=port)

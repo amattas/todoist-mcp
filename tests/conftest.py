@@ -1,10 +1,10 @@
 """Shared fixtures and configuration for tests"""
 
 import os
-import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
-from datetime import datetime, date, timezone, timedelta
+from datetime import date, datetime, timedelta, timezone
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 
 # ============================================================================
 # Mock Classes
@@ -22,19 +22,17 @@ class MockTodoistTask:
         self.labels = kwargs.get("labels", [])
         self.priority = kwargs.get("priority", 1)
         self.comment_count = kwargs.get("comment_count", 0)
-        self.created_at = kwargs.get(
-            "created_at", datetime.now(timezone.utc).isoformat()
-        )
+        self.created_at = kwargs.get("created_at", datetime.now(timezone.utc).isoformat())
         self.creator_id = kwargs.get("creator_id", "user123")
-        self.assignee_id = kwargs.get("assignee_id", None)
-        self.assigner_id = kwargs.get("assigner_id", None)
+        self.assignee_id = kwargs.get("assignee_id")
+        self.assigner_id = kwargs.get("assigner_id")
         self.project_id = kwargs.get("project_id", "proj123")
-        self.section_id = kwargs.get("section_id", None)
-        self.parent_id = kwargs.get("parent_id", None)
+        self.section_id = kwargs.get("section_id")
+        self.parent_id = kwargs.get("parent_id")
         self.order = kwargs.get("order", 0)
         self.url = kwargs.get("url", f"https://todoist.com/tasks/{self.id}")
-        self.due = kwargs.get("due", None)
-        self.duration = kwargs.get("duration", None)
+        self.due = kwargs.get("due")
+        self.duration = kwargs.get("duration")
 
 
 class MockTodoistDue:
@@ -43,8 +41,8 @@ class MockTodoistDue:
     def __init__(self, **kwargs):
         self.date = kwargs.get("date", date.today())
         self.string = kwargs.get("string", "today")
-        self.datetime = kwargs.get("datetime", None)
-        self.timezone = kwargs.get("timezone", None)
+        self.datetime = kwargs.get("datetime")
+        self.timezone = kwargs.get("timezone")
         self.is_recurring = kwargs.get("is_recurring", False)
 
 
@@ -55,7 +53,7 @@ class MockTodoistProject:
         self.id = kwargs.get("id", "proj123")
         self.name = kwargs.get("name", "Test Project")
         self.color = kwargs.get("color", "blue")
-        self.parent_id = kwargs.get("parent_id", None)
+        self.parent_id = kwargs.get("parent_id")
         self.order = kwargs.get("order", 0)
         self.is_shared = kwargs.get("is_shared", False)
         self.is_favorite = kwargs.get("is_favorite", False)
@@ -65,8 +63,8 @@ class MockTodoistProject:
         self.view_style = kwargs.get("view_style", "list")
         self.url = kwargs.get("url", f"https://todoist.com/projects/{self.id}")
         self.description = kwargs.get("description", "")
-        self.workspace_id = kwargs.get("workspace_id", None)
-        self.folder_id = kwargs.get("folder_id", None)
+        self.workspace_id = kwargs.get("workspace_id")
+        self.folder_id = kwargs.get("folder_id")
 
 
 class MockTodoistLabel:
@@ -97,9 +95,27 @@ class MockTodoistComment:
         self.id = kwargs.get("id", "comment123")
         self.content = kwargs.get("content", "Test comment")
         self.posted_at = kwargs.get("posted_at", datetime.now(timezone.utc).isoformat())
-        self.task_id = kwargs.get("task_id", None)
-        self.project_id = kwargs.get("project_id", None)
-        self.attachment = kwargs.get("attachment", None)
+        self.task_id = kwargs.get("task_id")
+        self.project_id = kwargs.get("project_id")
+        self.attachment = kwargs.get("attachment")
+
+
+class MockTodoistCollaborator:
+    """Mock Todoist Collaborator object"""
+
+    def __init__(self, **kwargs):
+        self.id = kwargs.get("id", "collab123")
+        self.name = kwargs.get("name", "Test User")
+        self.email = kwargs.get("email", "test@example.com")
+
+
+class MockCompletedTasksResult:
+    """Mock result for completed tasks API"""
+
+    def __init__(self, items=None, cursor=None, has_more=False):
+        self.items = items or []
+        self.cursor = cursor
+        self.has_more = has_more
 
 
 # ============================================================================
@@ -142,23 +158,79 @@ def mock_todoist_api():
             ]
         )
 
-        mock_api.add_task.return_value = MockTodoistTask(
-            id="new123", content="New Task"
-        )
+        mock_api.add_task.return_value = MockTodoistTask(id="new123", content="New Task")
 
-        mock_api.update_task.return_value = MockTodoistTask(
-            id="123", content="Updated Task"
-        )
+        mock_api.update_task.return_value = MockTodoistTask(id="123", content="Updated Task")
 
         mock_api.complete_task.return_value = True
         mock_api.uncomplete_task.return_value = True
         mock_api.delete_task.return_value = True
 
         mock_api.get_project.return_value = MockTodoistProject(id="1", name="Work")
-        mock_api.get_section.return_value = MockTodoistSection(
-            id="1", name="In Progress"
-        )
+        mock_api.get_section.return_value = MockTodoistSection(id="1", name="In Progress")
         mock_api.get_label.return_value = MockTodoistLabel(id="1", name="urgent")
+
+        # Task operations
+        mock_api.add_task_quick.return_value = MockTodoistTask(id="quick123", content="Quick Task")
+        mock_api.move_task.return_value = MockTodoistTask(
+            id="123", content="Moved Task", project_id="new_proj"
+        )
+        mock_api.get_completed_tasks_by_completion_date.return_value = MockCompletedTasksResult(
+            items=[MockTodoistTask(id="done1", content="Done Task", is_completed=True)],
+            has_more=False,
+        )
+        mock_api.get_completed_tasks_by_due_date.return_value = MockCompletedTasksResult(
+            items=[MockTodoistTask(id="done2", content="Done Task 2", is_completed=True)],
+            has_more=False,
+        )
+
+        # Project operations
+        mock_api.add_project.return_value = MockTodoistProject(id="new_proj", name="New Project")
+        mock_api.update_project.return_value = MockTodoistProject(id="1", name="Updated Project")
+        mock_api.delete_project.return_value = True
+        mock_api.archive_project.return_value = True
+        mock_api.unarchive_project.return_value = True
+        mock_api.get_collaborators.return_value = [
+            MockTodoistCollaborator(id="user1", name="Alice", email="alice@example.com"),
+            MockTodoistCollaborator(id="user2", name="Bob", email="bob@example.com"),
+        ]
+
+        # Section operations
+        mock_api.get_sections.return_value = iter(
+            [
+                [
+                    MockTodoistSection(id="1", name="To Do", project_id="proj123"),
+                    MockTodoistSection(id="2", name="In Progress", project_id="proj123"),
+                ]
+            ]
+        )
+        mock_api.add_section.return_value = MockTodoistSection(id="new_sec", name="New Section")
+        mock_api.update_section.return_value = MockTodoistSection(id="1", name="Updated Section")
+        mock_api.delete_section.return_value = True
+
+        # Label operations
+        mock_api.add_label.return_value = MockTodoistLabel(id="new_label", name="new-label")
+        mock_api.update_label.return_value = MockTodoistLabel(id="1", name="updated-label")
+        mock_api.delete_label.return_value = True
+        mock_api.get_shared_labels.return_value = ["shared1", "shared2"]
+        mock_api.rename_shared_label.return_value = True
+        mock_api.remove_shared_label.return_value = True
+
+        # Comment operations
+        mock_api.get_comments.return_value = iter(
+            [
+                [
+                    MockTodoistComment(id="1", content="Comment 1", task_id="task123"),
+                    MockTodoistComment(id="2", content="Comment 2", task_id="task123"),
+                ]
+            ]
+        )
+        mock_api.get_comment.return_value = MockTodoistComment(id="1", content="Single Comment")
+        mock_api.add_comment.return_value = MockTodoistComment(
+            id="new_comment", content="New Comment"
+        )
+        mock_api.update_comment.return_value = MockTodoistComment(id="1", content="Updated Comment")
+        mock_api.delete_comment.return_value = True
 
         yield mock_api
 
