@@ -437,7 +437,7 @@ class TestTodoistService:
         """Test updating non-existent task"""
         mock_todoist_api.update_task.side_effect = Exception("404 Not Found")
 
-        with pytest.raises(ValueError, match="Task with ID .* not found"):
+        with pytest.raises(ValueError, match=r"Task with ID .* not found"):
             todoist_service.update_task(task_id="nonexistent", content="Test")
 
     # ========== MCP WRAPPER TESTS ==========
