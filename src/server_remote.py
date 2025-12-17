@@ -185,8 +185,8 @@ if api_key:
             "MCP endpoint: http://%s:%s/app/%s/%s/mcp",
             host,
             port,
-            api_key,
-            api_key_hash,
+            "[REDACTED]",
+            "[REDACTED]",
         )
         logger.info("Health check: http://%s:%s/app/health", host, port)
         logger.warning("Keep your API key secret and use HTTPS in production!")
