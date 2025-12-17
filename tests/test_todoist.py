@@ -488,6 +488,8 @@ class TestTodoistService:
     def test_move_task_to_project(self, todoist_service, mock_todoist_api):
         """Test moving task to different project"""
         mock_todoist_api.get_project.return_value = MockTodoistProject(id="new_proj")
+        mock_todoist_api.move_task.return_value = True
+        mock_todoist_api.get_task.return_value = MockTodoistTask(id="123", project_id="new_proj")
 
         task = todoist_service.move_task(task_id="123", project_id="new_proj")
 
@@ -498,12 +500,15 @@ class TestTodoistService:
             section_id=None,
             parent_id=None,
         )
+        mock_todoist_api.get_task.assert_called_with("123")
 
     def test_move_task_to_section(self, todoist_service, mock_todoist_api):
         """Test moving task to different section"""
         from tests.conftest import MockTodoistSection
 
         mock_todoist_api.get_section.return_value = MockTodoistSection(id="sec123")
+        mock_todoist_api.move_task.return_value = True
+        mock_todoist_api.get_task.return_value = MockTodoistTask(id="123", section_id="sec123")
 
         todoist_service.move_task(task_id="123", section_id="sec123")
 
@@ -516,6 +521,9 @@ class TestTodoistService:
 
     def test_move_task_to_parent(self, todoist_service, mock_todoist_api):
         """Test making task a subtask"""
+        mock_todoist_api.move_task.return_value = True
+        mock_todoist_api.get_task.return_value = MockTodoistTask(id="123", parent_id="parent456")
+
         todoist_service.move_task(task_id="123", parent_id="parent456")
 
         mock_todoist_api.move_task.assert_called_once_with(
@@ -564,6 +572,8 @@ class TestTodoistService:
     def test_move_task_for_mcp(self, todoist_service, mock_todoist_api):
         """Test MCP wrapper for moving task"""
         mock_todoist_api.get_project.return_value = MockTodoistProject(id="new_proj")
+        mock_todoist_api.move_task.return_value = True
+        mock_todoist_api.get_task.return_value = MockTodoistTask(id="123", project_id="new_proj")
 
         result = todoist_service.move_task_for_mcp(task_id="123", project_id="new_proj")
 
