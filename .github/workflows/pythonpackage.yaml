@@ -26,12 +26,25 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install black ruff mypy bandit pip-audit
+          pip install pytest pytest-cov black ruff mypy bandit pip-audit
+
+      - name: Run pytest
+        run: |
+          pytest -q --cov=src/services --cov-report=xml --cov-report=term-missing
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        if: matrix.python-version == '3.12'
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Format check with Black
         run: |
           black --version
-          black --check --diff src
+          black --check --diff src tests
 
       - name: Lint with Ruff
         run: |
@@ -44,7 +57,7 @@ jobs:
 
       - name: Bandit security scan
         run: |
-          bandit -r src
+          bandit -r src -x tests/
 
       - name: Dependency audit with pip-audit (non-blocking)
         run: |

@@ -3,9 +3,9 @@
 Verify MCP authentication by calculating the correct endpoint URL
 """
 
-import sys
 import hashlib
 import os
+import sys
 
 
 def calculate_mcp_url(
@@ -14,10 +14,7 @@ def calculate_mcp_url(
     """Calculate MCP endpoint URLs with dual-factor authentication"""
 
     # Calculate hash of API key with optional salt
-    if md5_salt:
-        hash_input = f"{md5_salt}{api_key}"
-    else:
-        hash_input = api_key
+    hash_input = f"{md5_salt}{api_key}" if md5_salt else api_key
 
     # Use SHA-256 to match server_remote.py and avoid weak-hash usage
     api_key_hash = hashlib.sha256(hash_input.encode()).hexdigest()
