@@ -5,10 +5,10 @@ import logging
 import os
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo
 
 from todoist_api_python.api import TodoistAPI
 from todoist_api_python.models import Comment, Label, Project, Section, Task
-from zoneinfo import ZoneInfo
 
 from .cache import CacheConfig, CacheTTL, RedisCache, cache_aside
 from .todoist_constants import (
