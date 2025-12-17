@@ -1,5 +1,10 @@
 [
   {
+    "version": "latest",
+    "title": "latest",
+    "aliases": []
+  },
+  {
     "version": "dev-d377d84",
     "title": "dev-d377d84",
     "aliases": [
