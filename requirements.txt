@@ -1,5 +1,4 @@
 # Core MCP and FastMCP framework
-mcp>=1.0.0
 fastmcp>=2.14.0
 
 # Web framework dependencies
@@ -11,8 +10,8 @@ pydantic>=2.0.0
 # Todoist task management
 todoist-api-python>=2.0.0
 
-# HTTP and networking
-requests>=2.31.0
+# HTTP and networking (urllib3 pinned for security fix)
+urllib3>=2.6.0
 
 # Utilities
 python-dateutil>=2.8.0
