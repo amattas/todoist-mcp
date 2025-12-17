@@ -61,5 +61,5 @@ jobs:
 
       - name: Dependency audit with pip-audit (non-blocking)
         run: |
-          pip-audit -s
+          pip-audit
         continue-on-error: true
