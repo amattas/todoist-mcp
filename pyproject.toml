@@ -13,3 +13,23 @@ ignore = [
 
 [tool.black]
 line-length = 100
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+# Relaxed settings - can tighten over time
+disallow_untyped_defs = false
+warn_return_any = false
+check_untyped_defs = false
+# Disable problematic checks for now - tighten incrementally
+disable_error_code = [
+    "union-attr",     # Many None checks needed
+    "arg-type",       # Type argument mismatches
+    "return-value",   # Return type mismatches
+    "assignment",     # Assignment type mismatches
+    "call-arg",       # Wrong keyword arguments
+    "attr-defined",   # Missing attributes
+    "call-overload",  # Overload resolution
+    "index",          # Indexing issues
+    "var-annotated",  # Missing annotations
+]

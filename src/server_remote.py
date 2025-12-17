@@ -43,6 +43,7 @@ if api_key:
     from fastapi.responses import Response
     from starlette.middleware.base import BaseHTTPMiddleware
 
+    from . import __version__
     from .server import initialize_services, mcp
 
     # Get configuration
@@ -125,7 +126,7 @@ if api_key:
     @app.get("/app/health")
     async def health_check():
         """Fast health check endpoint - does not initialize services"""
-        return {"status": "healthy", "version": "1.0.0", "server": "TodoistMCP"}
+        return {"status": "healthy", "version": __version__, "server": "TodoistMCP"}
 
     # Authenticated MCP endpoint with dual-factor path authentication
     # Services are initialized on first authenticated request
