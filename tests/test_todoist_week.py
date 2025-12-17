@@ -1,7 +1,6 @@
 """Test cases for Todoist week tasks functionality"""
 
 from datetime import datetime, timedelta
-
 from zoneinfo import ZoneInfo
 
 from tests.conftest import MockTodoistDue, MockTodoistTask
