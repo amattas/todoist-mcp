@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 from dotenv import dotenv_values
 from fastmcp import FastMCP
 
+from . import __version__
 from .services.cache import RedisCache
 
 # Import our service modules
@@ -148,7 +149,7 @@ def get_cache_service() -> RedisCache | None:
 )
 def get_server_status() -> dict[str, Any]:
     """Get the status of the Todoist service"""
-    status = {"server": "TodoistMCP", "version": "1.0.0", "services": {}}
+    status = {"server": "TodoistMCP", "version": __version__, "services": {}}
 
     # Check Todoist service
     todoist_service = get_todoist_service()
