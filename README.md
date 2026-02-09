@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.svg" width="120" alt="Todoist MCP logo">
+</p>
+
 # Todoist MCP Server
 
 [![Tests](https://github.com/amattas/todoist-mcp/actions/workflows/pythonpackage.yaml/badge.svg)](https://github.com/amattas/todoist-mcp/actions/workflows/pythonpackage.yaml)
