@@ -12,6 +12,7 @@ todoist-api-python>=2.0.0
 
 # HTTP and networking (urllib3 pinned for security fix)
 urllib3>=2.6.0
+requests>=2.33.0  # pinned to override transitive version, CVE in extract_zipped_paths
 
 # Utilities
 python-dateutil>=2.8.0
