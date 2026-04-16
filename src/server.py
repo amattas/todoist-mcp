@@ -62,7 +62,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Initialize MCP server
-mcp = FastMCP(name="TodoistMCP", stateless_http=True)
+mcp = FastMCP(name="TodoistMCP")
 
 # Service instances (will be initialized on first use)
 _todoist_service: TodoistService | None = None
