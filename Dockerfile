@@ -40,6 +40,7 @@ RUN pip install --upgrade pip && \
 
 # Copy application code from src/
 COPY src/ ./src/
+COPY pyproject.toml ./
 
 # Precompile Python bytecode for faster startup
 RUN python -m compileall -q /app
