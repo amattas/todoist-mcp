@@ -1,7 +1,7 @@
 """Shared fixtures and configuration for tests"""
 
 import os
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -22,7 +22,7 @@ class MockTodoistTask:
         self.labels = kwargs.get("labels", [])
         self.priority = kwargs.get("priority", 1)
         self.comment_count = kwargs.get("comment_count", 0)
-        self.created_at = kwargs.get("created_at", datetime.now(timezone.utc).isoformat())
+        self.created_at = kwargs.get("created_at", datetime.now(UTC).isoformat())
         self.creator_id = kwargs.get("creator_id", "user123")
         self.assignee_id = kwargs.get("assignee_id")
         self.assigner_id = kwargs.get("assigner_id")
@@ -94,7 +94,7 @@ class MockTodoistComment:
     def __init__(self, **kwargs):
         self.id = kwargs.get("id", "comment123")
         self.content = kwargs.get("content", "Test comment")
-        self.posted_at = kwargs.get("posted_at", datetime.now(timezone.utc).isoformat())
+        self.posted_at = kwargs.get("posted_at", datetime.now(UTC).isoformat())
         self.task_id = kwargs.get("task_id")
         self.project_id = kwargs.get("project_id")
         self.attachment = kwargs.get("attachment")
@@ -291,7 +291,7 @@ def async_mock():
 @pytest.fixture
 def test_dates():
     """Common test dates"""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "today": now.date(),
         "tomorrow": (now + timedelta(days=1)).date(),
